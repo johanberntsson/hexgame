@@ -3,7 +3,7 @@ The Hex game for the MEGA65 computer
 
 ![Tiles](screenshots/title.png)
 
-See design.md for more information.
+See [design.md](design.md) for more information.
 
 # Instructions
 

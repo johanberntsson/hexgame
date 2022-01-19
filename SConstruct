@@ -6,7 +6,7 @@ env = Environment(
     CC='cl65 -O')
 
 hexgame = env.Program('bin/hexgame.c64', [
-    'hexgame.c',
+    'src/hexgame.c',
     'mega65-libc-modified/cc65/src/memory.c',
     'mega65-libc-modified/cc65/src/fcio.c'
 ])
