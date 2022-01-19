@@ -25,7 +25,7 @@
 
 // add a song or not?
 #define ENABLE_MUSIC
-#define ENABLE_SAMPLES
+//#define ENABLE_SAMPLES
 
 // hexagon status (bitmask)
 #define HEX_EMPTY 0
@@ -73,9 +73,6 @@ char *empty40 = "                                        ";
 #define NOWINNER 2
 #define ABORT 3
 
-#define XINDEX 0
-#define YINDEX 1
-
 typedef struct {
     byte size;
     byte size_minus_1;
@@ -88,11 +85,18 @@ typedef struct {
     // breadth-first search helpers (for finding winner)
     char queue_head;
     char visited[MAX_SIZE][MAX_SIZE];
-    char queue[(MAX_SIZE * MAX_SIZE)/2][2]; // in worst case half of the board is white, half is black
+    // in worst case half of the board is white, half is black
+    char queue_x[(MAX_SIZE * MAX_SIZE)/2]; 
+    char queue_y[(MAX_SIZE * MAX_SIZE)/2]; 
 
     // Monte Carlo simulation helpers
-    byte num_empty[2];
-    char empty[2][MAX_SIZE * MAX_SIZE][2];
+    // empty tiles when starting mcs
+    byte num_empty;
+    char empty_x[MAX_SIZE * MAX_SIZE];
+    char empty_y[MAX_SIZE * MAX_SIZE];
+    // empty tile permutations during mcs
+    char perm_x[MAX_SIZE * MAX_SIZE];
+    char perm_y[MAX_SIZE * MAX_SIZE];
 
 } Board;
 Board board;
@@ -263,8 +267,8 @@ byte check_win(byte x, byte y) {
 
     // add the current stone to the queue
     board.queue_head = 1;
-    board.queue[0][XINDEX] = x;
-    board.queue[0][YINDEX] = y;
+    board.queue_x[0] = x;
+    board.queue_y[0] = y;
     stone_tile = board.tile[x][y];
     condition[0] = false; // any stone on the left/top edge?
     condition[1] = false; // any stone on the right/bottom edge?
@@ -272,8 +276,8 @@ byte check_win(byte x, byte y) {
     while(board.queue_head > 0) {
         // pop the head of the queue
         --board.queue_head;
-        x = board.queue[board.queue_head][XINDEX];
-        y = board.queue[board.queue_head][YINDEX];
+        x = board.queue_x[board.queue_head];
+        y = board.queue_y[board.queue_head];
         check_edges(x, y, condition);
         board.visited[x][y] = true;
 
@@ -287,8 +291,8 @@ byte check_win(byte x, byte y) {
                 yy = (byte) int_y;
                 if(board.tile[xx][yy] == stone_tile && board.visited[xx][yy] == false) {
                     board.visited[xx][yy] = true;
-                    board.queue[board.queue_head][XINDEX] = xx;
-                    board.queue[board.queue_head][YINDEX] = yy;
+                    board.queue_x[board.queue_head] = xx;
+                    board.queue_y[board.queue_head] = yy;
                     ++board.queue_head;
                 }
             } else {
@@ -411,73 +415,97 @@ byte player_turn() {
     return check_win(cx, cy);
 }
 
-void get_empty_tiles(byte level, bool shuffle) {
+void get_empty_tiles(byte max_tiles, bool shuffle) {
     // creates a list of empty tiles in Board.empty_*
     // useful for mfs
     byte i, x, y, swap;
-    board.num_empty[level] = 0;
+    board.num_empty = 0;
     for(x = 0; x < board.size; x++) {
         for(y = 0; y < board.size; y++) {
             if(board.tile[x][y] == HEX_EMPTY) {
-                board.empty[level][board.num_empty[level]][XINDEX] = x;
-                board.empty[level][board.num_empty[level]][YINDEX] = y;
-                ++board.num_empty[level];
+                board.empty_x[board.num_empty] = x;
+                board.empty_y[board.num_empty] = y;
+                ++board.num_empty;
             }
         }
     }
 
-    if(!shuffle) return;
+    if(max_tiles > board.num_empty) max_tiles = board.num_empty;
 
-    // shuffle the list using Knuth's algorithm P (shuffling)
-    for(x = board.num_empty[level] - 1; x > 1; x--) {
-        y =  RND % x;
-        for(i = 0; i < 2; i++) { // swap for XINDEX and YINDEX
-            swap = board.empty[level][x][i];
-            board.empty[level][x][i] = board.empty[level][y][i];
-            board.empty[level][y][i] = swap;
+    if(shuffle) {
+        // shuffle the list using Knuth's algorithm P (shuffling)
+        //for(x = board.num_empty - 1; x > 0; x--) 
+        //    y =  RND % x;
+        i = board.num_empty;
+        for(x = 0; x < max_tiles ; x++) {
+            y =  x + (RND % i);
+            --i;
+            swap = board.empty_x[x];
+            board.empty_x[x] = board.empty_x[y];
+            board.empty_x[y] = swap;
+            swap = board.empty_y[x];
+            board.empty_y[x] = board.empty_y[y];
+            board.empty_y[y] = swap;
         }
-        
     }
+    board.num_empty = max_tiles;
 }
 
 void show_progress_bar() {
     fc_textcolor(FC_COLOR_WHITE);
     fc_putsxy(65,2, "Thinking...");
-    fc_revers(true);
     fc_textcolor(FC_COLOR_GREEN);
+    fc_revers(true);
     fc_putsxy(PROGRESS_TEXT_X, PROGRESS_TEXT_Y, "          ");
     fc_revers(false);
 }
 
 void set_progress_bar(byte position) {
     byte x;
-    fc_revers(true);
+    fc_gotoxy(PROGRESS_TEXT_X, PROGRESS_TEXT_Y);
     fc_textcolor(FC_COLOR_RED);
-    for(x = 0; x < position; x++) {
-        fc_putsxy(PROGRESS_TEXT_X + x, PROGRESS_TEXT_Y, " ");
-    }
+    fc_revers(true);
+    for(x = 0; x < position; x++) fc_puts(" ");
     fc_revers(false);
 }
 
 void hide_progress_bar() {
     fc_putsxy(65,2, "           ");
+    fc_revers(false);
     fc_putsxy(PROGRESS_TEXT_X, PROGRESS_TEXT_Y, "          ");
 }
 
-byte get_wins() {
+byte get_wins(byte skip_tile) {
     // make a list of empty tiles and add white/black pieces until
     // someone wins. Repeat this a number of times, doing a small
     // permuation of the list of empty tiles. Return the number
     // of wins found for the black (computer) player.
-    byte i;
-    byte win_count = 1;
+    byte i, n, x, y, turn;
+    byte win_count = 0;
 
-    get_empty_tiles(1, true);
+    for(i = 0, n = 0; i < board.num_empty; i++) {
+        board.perm_x[n] = board.empty_x[i];
+        board.perm_y[n] = board.empty_y[i];
+        if(i != skip_tile) ++n;
+    }
+    for(n = 0; n < 10; n++) {
+        turn = 0;
+        for(i = 0; i < board.num_empty - 1; i++) {
+            // place white/black until end of game
+            x = board.perm_x[i];
+            y = board.perm_y[i];
+            turn = !turn;
+            if(turn) {
+                board.tile[x][y] = HEX_BLACK;
+            } else {
+                board.tile[x][y] = HEX_WHITE;
+            }
+        }
+    }
 
     // restore the board (make all empty tiles empty again)
-    for(i = 0; i < board.num_empty[1]; i++) {
-        board.tile[board.empty[1][i][XINDEX]][board.empty[1][i][YINDEX]] =
-            HEX_EMPTY;
+    for(i = 0; i < board.num_empty; i++) {
+        board.tile[board.empty_x[i]][board.empty_y[i]] = HEX_EMPTY;
     }
     return win_count;
 
@@ -530,24 +558,24 @@ void mcs_next_turn(byte *xx, byte *yy) {
     byte i, x, y;
 
     show_progress_bar();
-    get_empty_tiles(0, true);
-
+    get_empty_tiles(81, true);
     // limit the number of tiles to consider to
     // speed up evaluation
-    num_tiles = board.num_empty[0];
-    num_tiles = 1;
-    if(num_tiles > 20) num_tiles = 30;
+    num_tiles = board.num_empty;
+    //num_tiles = 1;
+    if(num_tiles > 20) num_tiles = 20;
 
     progress_range =  num_tiles / 10;
+    if(progress_range == 0) progress_range = 1;
 
     for(i = 0; i < num_tiles; i++) {
         // place the stone on the board
-        x = board.empty[0][i][XINDEX];
-        y = board.empty[0][i][YINDEX];
+        x = board.empty_x[i];
+        y = board.empty_y[i];
         board.tile[x][y] = HEX_BLACK;
 
         // estimate the number of wins from this new brick
-        wins = get_wins();
+        wins = get_wins(i);
         if(wins > most_wins) {
             // the best move found so far
             *xx = x;
@@ -558,10 +586,17 @@ void mcs_next_turn(byte *xx, byte *yy) {
         // restore the brick
         board.tile[x][y] = HEX_EMPTY;
 
-        //set_progress_bar(i / progress_range);
+        set_progress_bar(i / progress_range);
     }
 
     hide_progress_bar();
+
+    if(most_wins == 0) {
+        // we didn't find any win at all, so just pick a random tile
+        // as a last resort
+        *xx = board.empty_x[0];
+        *yy = board.empty_y[0];
+    }
 }
 
 void computer_turn_hard(byte *x, byte *y) {
@@ -573,9 +608,9 @@ void computer_turn_normal(byte *x, byte *y) {
 }
 
 void computer_turn_easy(byte *x, byte *y) {
-    get_empty_tiles(0, true);
-    *x = board.empty[0][0][XINDEX];
-    *y = board.empty[0][0][YINDEX];
+    get_empty_tiles(1, true);
+    *x = board.empty_x[0];
+    *y = board.empty_y[0];
 }
 
 
@@ -665,11 +700,10 @@ byte computer_turn() {
     else
         computer_turn_hard(&x, &y);
 
-    // put a white stone here
+    // put a black stone here
     board.tile[x][y] = HEX_BLACK;
     board.redraw[x][y] = true;
     draw_board(1, 1);
-
     return check_win(x, y);
 }
 
@@ -792,7 +826,7 @@ void main() {
     unsigned short i;
 
     option_music = OPTION_MUSIC_ON;
-    option_difficulty = OPTION_DIFFICULTY_EASY;
+    option_difficulty = OPTION_DIFFICULTY_NORMAL;
 
     init_graphics();
 #ifdef ENABLE_MUSIC
