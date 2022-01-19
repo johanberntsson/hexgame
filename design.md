@@ -105,8 +105,18 @@ The init and play addresses can be inspected with
 
     sidplay -v music.sid
 
-# Improvements
+# Computer Opponent / AI
 
+It is hard to make a good AI to the Hex game, esxpecially with a (relatively) weak machine as the MEGA65. Exhaustive search is out of the question, so I tried using Monte Carlo simulation.
 
+## Random Moves
 
+On the easy level the computer plays random moves, and it very easy to beat.
 
+## Monte Carlo Simulation
+
+Normal and hard levels try to implement a Monte Carlo simulation. It works by playing a series of games using the currently empty tiles and calculating the number of predicted wins for the computer. The computer then plays the stone with the most predicited wins. The problem is that I need to limit the number of randomized plays to keep the response time down to reasonable levels, which has a great impact on the quality of the AI player. So even the MCS player isn't very chanllening.
+
+## Heuristics
+
+To at least stop the worst stupid moves I combined the Monte Carlo simulation with a few heuristics that try to block chains of the opponent when they get long.
