@@ -1,3 +1,8 @@
+# MEGA65/scons
+.sconsign.dblite
+bin/*
+*.prg
+
 # Prerequisites
 *.d
 
