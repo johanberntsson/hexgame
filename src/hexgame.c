@@ -25,7 +25,7 @@
 
 // add a song or not?
 #define ENABLE_MUSIC
-//#define ENABLE_SAMPLES
+#define ENABLE_SAMPLES
 
 // hexagon status (bitmask)
 #define HEX_EMPTY 0
@@ -81,7 +81,8 @@ typedef struct {
     byte side; // current player
     char tile[MAX_SIZE][MAX_SIZE];
     char redraw[MAX_SIZE][MAX_SIZE];
-    byte px, py; // human players last stone position
+    byte white_last_x, white_last_y; // human player's last stone position
+    byte black_last_x, black_last_y; // computer player's last stone position
 
     // breadth-first search helpers (for finding winner)
     char queue_head;
@@ -96,7 +97,8 @@ Board board;
 
 // breadth-first search helpers
 int direction[6][2] = {
-    {-1, 0}, {-1, 1}, {0,-1}, {0,1}, {1, -1}, {1, 0} // adjacent tiles
+    {0,1}, {1, -1}, {1, 0}, // adjacent tiles
+    {-1, 0}, {-1, 1}, {0,-1}
 };
 
 // Monte Carlo simulation helpers
@@ -254,6 +256,10 @@ void check_edges(byte x, byte y, byte* condition) {
    }
 }
 
+byte is_inside_board(int x, int y) {
+    return (x >= 0 && y >= 0 && x < board.size && y < board.size);
+}
+
 byte check_win(byte x, byte y) {
     // do a breadth-first search from the latest placed stone (at x, y)
     int int_x, int_y; // since direction is int and has negative values
@@ -287,7 +293,8 @@ byte check_win(byte x, byte y) {
         for(i = 0; i < 6; i++) {
             int_x = x + direction[i][0];
             int_y = y + direction[i][1];
-            if(int_x >= 0 && int_y >= 0 && int_x < board.size && int_y < board.size) {
+            if(is_inside_board(int_x, int_y)) {
+            //if(int_x >= 0 && int_y >= 0 && int_x < board.size && int_y < board.size) {
                 // the adjacent position is a valid board position
                 xx = (byte) int_x;
                 yy = (byte) int_y;
@@ -358,20 +365,22 @@ byte player_turn() {
     // add a stone, return true if this was a winning move
     byte key;
     byte cx, cy = 255; // cursor pos, 255 forces cx/cy/tile init
+    byte px = board.white_last_x;
+    byte py = board.white_last_y;
 
     // display cursor and get new stone location
     key = 0;
     while(key != KEY_ENTER) {
-        if(board.px != cx || board.py != cy) {
+        if(px != cx || py != cy) {
             if(cx < board.size) {
                 board.redraw[cx][cy] = true;
                 board.tile[cx][cy] &= 0xff-HEX_CURSOR;
             }
-            board.redraw[board.px][board.py] = true;
-            board.tile[board.px][board.py] |= HEX_CURSOR;
+            board.redraw[px][py] = true;
+            board.tile[px][py] |= HEX_CURSOR;
             draw_board(1, 1);
-            cx = board.px;
-            cy = board.py;
+            cx = px;
+            cy = py;
         }
         key = fc_getkey();
         if(key) update_options(&key); // check if a global option command
@@ -389,31 +398,33 @@ byte player_turn() {
                 }
                 break;
             case KEY_LEFT:
-                if(cx > 0) --board.px;
+                if(cx > 0) --px;
                 break;
             case KEY_RIGHT:
-                board.px = cx + 1;
-                if(board.px >= board.size) --board.px;
+                px = cx + 1;
+                if(px >= board.size) --px;
                 break;
             case KEY_UP:
-                if(cy > 0) --board.py;
+                if(cy > 0) --py;
                 break;
             case KEY_DOWN:
-                board.py = cy + 1;
-                if(board.py >= board.size) --board.py;
+                py = cy + 1;
+                if(py >= board.size) --py;
         }
     }
 
     // put a white stone here
-    board.tile[board.px][board.py] = HEX_WHITE;
-    board.redraw[board.px][board.py] = true;
+    board.tile[px][py] = HEX_WHITE;
+    board.redraw[px][py] = true;
     draw_board(1, 1);
 
 #ifdef ENABLE_SAMPLES
     if(option_music == OPTION_MUSIC_OFF) play_sample(0, (unsigned short) SynClaves, SynClaves_len);
 #endif
 
-    return check_win(board.px, board.py);
+    board.white_last_x = px;
+    board.white_last_y = py;
+    return check_win(px, py);
 }
 
 void get_empty_tiles(byte max_tiles, bool shuffle) {
@@ -609,8 +620,8 @@ void main() {
         show_game_screen();
 
         turn = 0;
-        board.px = 0;
-        board.py = 0;
+        board.white_last_x = 0;
+        board.white_last_y = 0;
         game_state = NOWINNER;
         while(game_state == NOWINNER) {
             ++turn;
@@ -618,7 +629,7 @@ void main() {
             if(board.side == WHITE_PLAYER)
                 game_state = player_turn();
             else
-                game_state = computer_turn();
+                game_state = computer_turn(turn/2);
         }
         if(game_state != ABORT) show_win_screen();
     }

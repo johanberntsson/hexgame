@@ -45,11 +45,21 @@ VIC-IV offers new character modes instead of the VIC-III's bitplane mode. This n
 Full color mode is one of the new character modes. In full color mode each pixel has 8 bits, which acts as a pointer to a palette, giving up to 256 colours. 
 
 The default memory configuration for fcio is:
-$12000: 16 bit screen
-$14000: bitmap graphics
-$15000: system palette
-$15300: loaded palettes
-$40000: loaded bitmaps
+
+- $12000: 16 bit screen
+- $14000: bitmap graphics
+- $15000: system palette
+- $15300: loaded palettes
+- $40000: loaded bitmaps
+
+This memory is normally used by the Basic in C65 mode:
+
+- 1600 - 17ff:  currently unused
+- 1800 - 1bff:  buffer for PAINT, GCOPY, CUT, PASTE
+- 1c00 - 1cff:  clipping variables
+- 1d00 - 1dff:  buffer for IFF load/save and CHAR
+- 1e00 - 1eff:  scanline buffer (graphics)
+- 1f00 - 1fff:  direct page for graphic routines
 
 ## Raster Rewrite
 

@@ -117,45 +117,138 @@ void mcs_next_turn(byte *xx, byte *yy, byte num_empty, byte num_permutations) {
 //
 // heuristics
 //
-void check_soon_connected() {
+byte check_soon_connected(byte x0, byte y0, byte *xx, byte *yy) {
     // if the player is only one stone from making a connection
     // to another stone, then return the location of this
     // potential connection
+    // true if position found, otherwise false if no empty tile found
+    byte i, j, x1, y1, x2, y2, stone_type;
+    int int_x, int_y;
+
+    stone_type = board.tile[x0][y0];
+
+    // Call check_win to mark all stones that can be reached from
+    // x0, y0 stone
+    check_win(x0, y0);
+
+
+    for(i = 0; i < 6; i++) {
+        int_x = x0 + direction[i][0];
+        int_y = y0 + direction[i][1];
+        if(!is_inside_board(int_x, int_y)) continue;
+        x1 = (byte) int_x;
+        y1 = (byte) int_y;
+        if(board.tile[x1][y1] != HEX_EMPTY) continue;
+        // we found an adjacent empty tile. Now check if that
+        // tile has an adjacent tile of the same colour
+        for(j = 0; j < 6; j++) {
+            int_x = x1 + direction[j][0];
+            int_y = y1 + direction[j][1];
+            if(!is_inside_board(int_x, int_y)) continue;
+            x2 = (byte) int_x;
+            y2 = (byte) int_y;
+            if(x2 == x0 && y2 == y0) continue; // don't select the start stone
+            if(board.tile[x2][y2] == stone_type) {
+                // we found an empty tile that connects two stones
+
+                // skip if these stones are already connected somehow
+                if(board.visited[x2][y2]) continue;
+
+                // not connects, fill it in
+                *xx = x1;
+                *yy = y1;
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+byte build_chain(byte x0, byte y0, byte *xx, byte *yy) {
+    // continue to add to the chain from the last black position
+    // true if position found, otherwise false if no empty tile found
+    byte i, n, x, y;
+    int int_x, int_y;
+
+    for(n = 0; n < 6; n++) {
+        i = RND % 6;
+        int_x = x0 + direction[i][0];
+        int_y = y0 + direction[i][1];
+        if(is_inside_board(int_x, int_y)) {
+            x = (byte) int_x;
+            y = (byte) int_y;
+            if(board.tile[x][y] == HEX_EMPTY) {
+                *xx = x;
+                *yy = y;
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 //
 // computer turn handlers
 //
-void computer_turn_hard(byte *x, byte *y) {
+void computer_turn_hard(byte *x, byte *y, byte turn) {
+    // try to block human player
+    if(check_soon_connected(board.white_last_x, board.white_last_y, x, y))
+        return;
+    // add final stone to computer chain
+    if(check_soon_connected(board.black_last_x, board.black_last_y, x, y))
+        return;
     mcs_next_turn(x, y, 81, 20);
 }
 
-void computer_turn_normal(byte *x, byte *y) {
+void computer_turn_normal(byte *x, byte *y, byte turn) {
+    // try to block human player
+    if(check_soon_connected(board.white_last_x, board.white_last_y, x, y))
+        return;
+    // add final stone to computer chain
+    if(check_soon_connected(board.black_last_x, board.black_last_y, x, y))
+        return;
+    if(RND < 150) {
+        // try adding to the current chain
+        if(build_chain(board.black_last_x, board.black_last_y, x, y)) {
+            return;
+        }
+    }
     mcs_next_turn(x, y, 30, 20);
 }
 
-void computer_turn_easy(byte *x, byte *y) {
+void computer_turn_easy(byte *x, byte *y, byte turn) {
+    // try to block human player
+    if(check_soon_connected(board.white_last_x, board.white_last_y, x, y)) return;
+    // add final stone to computer chain
+    if(check_soon_connected(board.black_last_x, board.black_last_y, x, y)) return;
+    // random empty position
     get_empty_tiles(1, true);
     *x = empty_x[0];
     *y = empty_y[0];
 }
 
-byte computer_turn() {
+byte computer_turn(byte turn) {
     // add a stone, return true if this was a winning move
     byte x, y;
 
-    // just add a random black stone
-    if(option_difficulty == OPTION_DIFFICULTY_EASY) 
-        computer_turn_easy(&x, &y);
+    if(turn == 1) {
+        // just add a random black stone
+        get_empty_tiles(1, true);
+        x = empty_x[0];
+        y = empty_y[0];
+    } else if(option_difficulty == OPTION_DIFFICULTY_EASY) 
+        computer_turn_easy(&x, &y, turn);
     else if(option_difficulty == OPTION_DIFFICULTY_NORMAL) 
-        computer_turn_normal(&x, &y);
+        computer_turn_normal(&x, &y, turn);
     else
-        computer_turn_hard(&x, &y);
+        computer_turn_hard(&x, &y, turn);
 
     // put a black stone here
     board.tile[x][y] = HEX_BLACK;
     board.redraw[x][y] = true;
     draw_board(1, 1);
+    board.black_last_x = x;
+    board.black_last_y = y;
     return check_win(x, y);
 }
 
