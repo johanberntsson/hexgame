@@ -1,4 +1,7 @@
-byte get_wins(byte skip_tile, byte num_permutations) {
+//
+// Monte Carlo simulation routines
+//
+byte mcs_get_wins(byte skip_tile, byte num_permutations) {
     // make a list of empty tiles and add white/black pieces until
     // someone wins. Repeat this a number of times, doing a small
     // permuation of the list of empty tiles. Return the number
@@ -6,28 +9,35 @@ byte get_wins(byte skip_tile, byte num_permutations) {
     byte i, n, x, y, turn, swap, temp;
     byte win_count = 0;
 
-    for(i = 0, n = 0; i < board.num_empty; i++) {
-        board.perm_x[n] = board.empty_x[i];
-        board.perm_y[n] = board.empty_y[i];
+    for(i = 0, n = 0; i < num_empty; i++) {
+        perm_x[n] = empty_x[i];
+        perm_y[n] = empty_y[i];
         if(i != skip_tile) ++n;
     }
     for(n = 0; n < num_permutations; n++) {
+        i = PEEK(0xD610U);
+        if(i) {
+            POKE(0xD610U, 0);
+            update_options(&i);
+            return 0;
+        }
+
         // do random mutations
-        for(i=board.num_empty - 1; i>1; i--) {
+        for(i=num_empty - 1; i>1; i--) {
             swap = RND % i;
-            temp = board.perm_x[i-1];
-            board.perm_x[i-1] = board.perm_x[swap];
-            board.perm_x[swap] = temp;
-            temp = board.perm_y[i-1];
-            board.perm_y[i-1] = board.perm_y[swap];
-            board.perm_y[swap] = temp;
+            temp = perm_x[i-1];
+            perm_x[i-1] = perm_x[swap];
+            perm_x[swap] = temp;
+            temp = perm_y[i-1];
+            perm_y[i-1] = perm_y[swap];
+            perm_y[swap] = temp;
         }
 
         // place white/black until end of game (or black wins)
         turn = 0;
-        for(i = 0; i < board.num_empty - 1; i++) {
-            x = board.perm_x[i];
-            y = board.perm_y[i];
+        for(i = 0; i < num_empty - 1; i++) {
+            x = perm_x[i];
+            y = perm_y[i];
             turn = !turn;
             if(turn) {
                 board.tile[x][y] = HEX_BLACK;
@@ -64,18 +74,18 @@ void mcs_next_turn(byte *xx, byte *yy, byte num_empty, byte num_permutations) {
 
     show_progress_bar();
     get_empty_tiles(num_empty, true);
-    num_tiles = board.num_empty;
+    num_tiles = num_empty;
     progress_range =  num_tiles / 10;
     if(progress_range == 0) progress_range = 1;
 
     for(i = 0; i < num_tiles; i++) {
         // place the stone on the board
-        x = board.empty_x[i];
-        y = board.empty_y[i];
+        x = empty_x[i];
+        y = empty_y[i];
         board.tile[x][y] = HEX_BLACK;
 
         // estimate the number of wins from this new brick
-        wins = get_wins(i, num_permutations);
+        wins = mcs_get_wins(i, num_permutations);
         if(wins > most_wins) {
             // the best move found so far
             *xx = x;
@@ -94,16 +104,28 @@ void mcs_next_turn(byte *xx, byte *yy, byte num_empty, byte num_permutations) {
     if(most_wins == 0) {
         // we didn't find any win at all, so just pick a random tile
         // as a last resort
-        *xx = board.empty_x[0];
-        *yy = board.empty_y[0];
+        *xx = empty_x[0];
+        *yy = empty_y[0];
     }
 
     // restore the board (make all empty tiles empty again)
-    for(i = 0; i < board.num_empty; i++) {
-        board.tile[board.empty_x[i]][board.empty_y[i]] = HEX_EMPTY;
+    for(i = 0; i < num_empty; i++) {
+        board.tile[empty_x[i]][empty_y[i]] = HEX_EMPTY;
     }
 }
 
+//
+// heuristics
+//
+void check_soon_connected() {
+    // if the player is only one stone from making a connection
+    // to another stone, then return the location of this
+    // potential connection
+}
+
+//
+// computer turn handlers
+//
 void computer_turn_hard(byte *x, byte *y) {
     mcs_next_turn(x, y, 81, 20);
 }
@@ -114,8 +136,8 @@ void computer_turn_normal(byte *x, byte *y) {
 
 void computer_turn_easy(byte *x, byte *y) {
     get_empty_tiles(1, true);
-    *x = board.empty_x[0];
-    *y = board.empty_y[0];
+    *x = empty_x[0];
+    *y = empty_y[0];
 }
 
 byte computer_turn() {

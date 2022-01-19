@@ -81,6 +81,7 @@ typedef struct {
     byte side; // current player
     char tile[MAX_SIZE][MAX_SIZE];
     char redraw[MAX_SIZE][MAX_SIZE];
+    byte px, py; // human players last stone position
 
     // breadth-first search helpers (for finding winner)
     char queue_head;
@@ -89,14 +90,6 @@ typedef struct {
     char queue_x[(MAX_SIZE * MAX_SIZE)/2]; 
     char queue_y[(MAX_SIZE * MAX_SIZE)/2]; 
 
-    // Monte Carlo simulation helpers
-    // empty tiles when starting mcs
-    byte num_empty;
-    char empty_x[MAX_SIZE * MAX_SIZE];
-    char empty_y[MAX_SIZE * MAX_SIZE];
-    // empty tile permutations during mcs
-    char perm_x[MAX_SIZE * MAX_SIZE];
-    char perm_y[MAX_SIZE * MAX_SIZE];
 
 } Board;
 Board board;
@@ -105,6 +98,15 @@ Board board;
 int direction[6][2] = {
     {-1, 0}, {-1, 1}, {0,-1}, {0,1}, {1, -1}, {1, 0} // adjacent tiles
 };
+
+// Monte Carlo simulation helpers
+// empty tiles when starting mcs
+byte num_empty;
+char empty_x[MAX_SIZE * MAX_SIZE];
+char empty_y[MAX_SIZE * MAX_SIZE];
+// permutations of empty tiles during mcs
+char perm_x[MAX_SIZE * MAX_SIZE];
+char perm_y[MAX_SIZE * MAX_SIZE];
 
 #ifdef ENABLE_SAMPLES
 #include "sample01.c"
@@ -354,23 +356,22 @@ void update_options(byte *key) {
 
 byte player_turn() {
     // add a stone, return true if this was a winning move
-
-    static byte px = 0, py = 0; // remember last position
-    byte key, cx, cy = 255; // forces cx/cy/tile init
+    byte key;
+    byte cx, cy = 255; // cursor pos, 255 forces cx/cy/tile init
 
     // display cursor and get new stone location
     key = 0;
     while(key != KEY_ENTER) {
-        if(px != cx || py != cy) {
+        if(board.px != cx || board.py != cy) {
             if(cx < board.size) {
                 board.redraw[cx][cy] = true;
                 board.tile[cx][cy] &= 0xff-HEX_CURSOR;
             }
-            board.redraw[px][py] = true;
-            board.tile[px][py] |= HEX_CURSOR;
+            board.redraw[board.px][board.py] = true;
+            board.tile[board.px][board.py] |= HEX_CURSOR;
             draw_board(1, 1);
-            cx = px;
-            cy = py;
+            cx = board.px;
+            cy = board.py;
         }
         key = fc_getkey();
         if(key) update_options(&key); // check if a global option command
@@ -388,67 +389,67 @@ byte player_turn() {
                 }
                 break;
             case KEY_LEFT:
-                if(cx > 0) --px;
+                if(cx > 0) --board.px;
                 break;
             case KEY_RIGHT:
-                px = cx + 1;
-                if(px >= board.size) --px;
+                board.px = cx + 1;
+                if(board.px >= board.size) --board.px;
                 break;
             case KEY_UP:
-                if(cy > 0) --py;
+                if(cy > 0) --board.py;
                 break;
             case KEY_DOWN:
-                py = cy + 1;
-                if(py >= board.size) --py;
+                board.py = cy + 1;
+                if(board.py >= board.size) --board.py;
         }
     }
 
     // put a white stone here
-    board.tile[cx][cy] = HEX_WHITE;
-    board.redraw[cx][cy] = true;
+    board.tile[board.px][board.py] = HEX_WHITE;
+    board.redraw[board.px][board.py] = true;
     draw_board(1, 1);
 
 #ifdef ENABLE_SAMPLES
     if(option_music == OPTION_MUSIC_OFF) play_sample(0, (unsigned short) SynClaves, SynClaves_len);
 #endif
 
-    return check_win(cx, cy);
+    return check_win(board.px, board.py);
 }
 
 void get_empty_tiles(byte max_tiles, bool shuffle) {
     // creates a list of empty tiles in Board.empty_*
     // useful for mfs
     byte i, x, y, swap;
-    board.num_empty = 0;
+    num_empty = 0;
     for(x = 0; x < board.size; x++) {
         for(y = 0; y < board.size; y++) {
             if(board.tile[x][y] == HEX_EMPTY) {
-                board.empty_x[board.num_empty] = x;
-                board.empty_y[board.num_empty] = y;
-                ++board.num_empty;
+                empty_x[num_empty] = x;
+                empty_y[num_empty] = y;
+                ++num_empty;
             }
         }
     }
 
-    if(max_tiles > board.num_empty) max_tiles = board.num_empty;
+    if(max_tiles > num_empty) max_tiles = num_empty;
 
     if(shuffle) {
         // shuffle the list using Knuth's algorithm P (shuffling)
         //for(x = board.num_empty - 1; x > 0; x--) 
         //    y =  RND % x;
-        i = board.num_empty;
+        i = num_empty;
         for(x = 0; x < max_tiles ; x++) {
             y =  x + (RND % i);
             --i;
-            swap = board.empty_x[x];
-            board.empty_x[x] = board.empty_x[y];
-            board.empty_x[y] = swap;
-            swap = board.empty_y[x];
-            board.empty_y[x] = board.empty_y[y];
-            board.empty_y[y] = swap;
+            swap = empty_x[x];
+            empty_x[x] = empty_x[y];
+            empty_x[y] = swap;
+            swap = empty_y[x];
+            empty_y[x] = empty_y[y];
+            empty_y[y] = swap;
         }
     }
-    board.num_empty = max_tiles;
+    num_empty = max_tiles;
 }
 
 void show_progress_bar() {
@@ -541,8 +542,6 @@ void show_title_screen() {
 
         show_options();
 
-        if(show_title_text("Welcome to HEX!", 4)) return;
-
         add_white_stone(0,0);
         add_black_stone(2,3);
         draw_board(TITLE_BOARD_X, TITLE_BOARD_Y);
@@ -576,7 +575,9 @@ void show_title_screen() {
         if(show_title_text("You play white, the computer is black", 4)) return;
 
         if(show_title_text("Select an empty tile with the cursor keys and enter", 4)) return;
-        if(show_title_text("Press any key to start", 6)) return;
+        if(show_title_text("Select difficulty level with F2", 4)) return;
+        if(show_title_text("But even HARD isn't that difficult. Sorry", 4)) return;
+        if(show_title_text("Now press any key to start", 6)) return;
     }
 }
 
@@ -593,7 +594,6 @@ void show_game_screen() {
 void main() {
     word turn;
     byte game_state;
-    unsigned short i;
 
     option_music = OPTION_MUSIC_ON;
     option_difficulty = OPTION_DIFFICULTY_NORMAL;
@@ -609,6 +609,8 @@ void main() {
         show_game_screen();
 
         turn = 0;
+        board.px = 0;
+        board.py = 0;
         game_state = NOWINNER;
         while(game_state == NOWINNER) {
             ++turn;
