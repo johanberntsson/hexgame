@@ -116,7 +116,42 @@ void mcs_next_turn(byte *xx, byte *yy, byte num_empty, byte num_permutations) {
 
 //
 // heuristics
+// (wouldn't be needed if the AI was better)
 //
+byte is_chain(byte x, byte y) {
+    byte stone = board.tile[x][y];
+    if(x == 0) return false;
+    if(stone == HEX_EMPTY) return false;
+    // check if the last white stone is part of a chain
+    return (board.tile[x - 1][y] == stone ||
+            (y > 0 && board.tile[x - 1][y - 1] == stone) ||
+            (y < board.size_minus_1 && board.tile[x - 1][y + 1] == stone));
+}
+
+byte guard_edge(byte x0, byte y0, byte *xx, byte *yy) {
+    if(x0 > board.size/2) {
+        if(is_chain(x0, y0) == false) return false;
+        // block the chain if possible
+        if(board.tile[x0 + 1][y0] == HEX_EMPTY) {
+            *xx = x0 + 1;
+            *yy = y0;
+            return true;
+        }
+        if(y0 > 0 && board.tile[x0 + 1][y0 - 1] == HEX_EMPTY) {
+            *xx = x0 + 1;
+            *yy = y0 - 1;
+            return true;
+        }
+        if(y0 < board.size_minus_1 && 
+           board.tile[x0 + 1][y0 + 1] == HEX_EMPTY) {
+            *xx = x0 + 1;
+            *yy = y0 + 1;
+            return true;
+        }
+    }
+    return false;
+}
+
 byte check_soon_connected(byte x0, byte y0, byte *xx, byte *yy) {
     // if the player is only one stone from making a connection
     // to another stone, then return the location of this
@@ -190,7 +225,10 @@ byte build_chain(byte x0, byte y0, byte *xx, byte *yy) {
 //
 // computer turn handlers
 //
-void computer_turn_hard(byte *x, byte *y, byte turn) {
+void computer_turn_hard(byte *x, byte *y) {
+    // block if the human player is extending a chain on the right
+    if(guard_edge(board.white_last_x, board.white_last_y, x, y))
+        return;
     // try to block human player
     if(check_soon_connected(board.white_last_x, board.white_last_y, x, y))
         return;
@@ -200,7 +238,10 @@ void computer_turn_hard(byte *x, byte *y, byte turn) {
     mcs_next_turn(x, y, 81, 20);
 }
 
-void computer_turn_normal(byte *x, byte *y, byte turn) {
+void computer_turn_normal(byte *x, byte *y) {
+    // block if the human player is extending a chain on the right
+    if(guard_edge(board.white_last_x, board.white_last_y, x, y))
+        return;
     // try to block human player
     if(check_soon_connected(board.white_last_x, board.white_last_y, x, y))
         return;
@@ -216,7 +257,10 @@ void computer_turn_normal(byte *x, byte *y, byte turn) {
     mcs_next_turn(x, y, 30, 20);
 }
 
-void computer_turn_easy(byte *x, byte *y, byte turn) {
+void computer_turn_easy(byte *x, byte *y) {
+    // block if the human player is extending a chain on the right
+    if(guard_edge(board.white_last_x, board.white_last_y, x, y))
+        return;
     // try to block human player
     if(check_soon_connected(board.white_last_x, board.white_last_y, x, y)) return;
     // add final stone to computer chain
@@ -237,11 +281,11 @@ byte computer_turn(byte turn) {
         x = empty_x[0];
         y = empty_y[0];
     } else if(option_difficulty == OPTION_DIFFICULTY_EASY) 
-        computer_turn_easy(&x, &y, turn);
+        computer_turn_easy(&x, &y);
     else if(option_difficulty == OPTION_DIFFICULTY_NORMAL) 
-        computer_turn_normal(&x, &y, turn);
+        computer_turn_normal(&x, &y);
     else
-        computer_turn_hard(&x, &y, turn);
+        computer_turn_hard(&x, &y);
 
     // put a black stone here
     board.tile[x][y] = HEX_BLACK;

@@ -3,7 +3,7 @@ import os
 env = Environment(
     ENV={'PATH': os.environ['PATH']},
     CPPPATH='mega65-libc-modified/cc65/include',
-    CC='cl65 -O')
+    CC='cl65 -O -Oi -Or -Os')
 
 hexgame = env.Program('bin/hexgame.c64', [
     'src/hexgame.c',

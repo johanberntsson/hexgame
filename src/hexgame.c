@@ -189,9 +189,6 @@ void init_music() {
     lcopy((unsigned short) &themodel_prg[2], 0xc046, themodel_prg_len - 2);
 
     // The Model: init $c046, play $c0fa
-    //__asm__("lda #0");
-    //__asm__("ldx #0");
-    //__asm__("ldy #0"); 
     __asm__("jsr $c046");
 
     // Suspend interrupts during init
