@@ -115,6 +115,12 @@ The init and play addresses can be inspected with
 
     sidplay -v music.sid
 
+# Memory problems/fast IRQ loader
+
+There is a fast loader which could be used to read the resouces in the mega65-tools repository: [fastload_demo.a](https://github.com/MEGA65/mega65-tools/blob/master/src/utilities/fastload_demo.asm)
+
+Read this [blog post](https://c65gs.blogspot.com/2021/11/creating-simple-internal-drive-fast.html) for more information.
+
 # Computer Opponent / AI
 
 It is hard to make a good AI to the Hex game, esxpecially with a (relatively) weak machine as the MEGA65. Exhaustive search is out of the question, so I tried using Monte Carlo simulation.
