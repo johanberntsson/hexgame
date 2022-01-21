@@ -1087,6 +1087,29 @@ void fc_vlinexy(byte x, byte y, byte height, byte lineChar)
     }
 }
 
+
+// since cc65 doesn't allow 4510 opcodes I have
+// written the assembler in acme, made a hexdump and
+// stored it here
+unsigned char assembler[] = {
+    0xa9, 0x00,       // lda #$00
+    0xaa,             // tax
+    0xa8,             // tay
+    0x4b,             // taz
+    0x5c,             // map
+    0xa9, 0x36,       // lda #$36 (no basic)
+    0x85, 0x01,       // sta $01
+    0xa9, 0x47,       // lda #$47
+    0x8d, 0x2f, 0xd0, // sta $d02f
+    0xa9, 0x53,       // lda #$53
+    0x8d, 0x2f, 0xd0, // sta $d02f
+    0xea,             // eom
+    0xa9, 0x70,       // lda #$70
+    0x8d, 0x40, 0xd6, // sta $d640
+    0xea,             // nop
+    0x60              // rts
+};
+
 void fc_setUniqueTileMode()
 {
     if(uniqueTileMode == 0) {
@@ -1096,9 +1119,7 @@ void fc_setUniqueTileMode()
         // mode, we still need the kernal, so avoid writing on
         // 2e000 - 2ffff. 
         // See the MEGA65 book, page F-11
-        asm("lda #$70");
-        asm("sta $d640");
-        asm("nop");
+        asm("jsr %v", assembler);
         // clear the new memory, but keep the C64 kernal
         fc_clearUniqueTiles();
     }
