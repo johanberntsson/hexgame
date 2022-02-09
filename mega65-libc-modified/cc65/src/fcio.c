@@ -93,7 +93,9 @@ himemPtr nextFreeGraphMem; // location of next free graphics block in banks 4 & 
 himemPtr nextFreePalMem;   // location of next free palette memory block
 byte infoBlockCount;       // number of info blocks
 byte cgi;                  // universal loop var
-byte uniqueTileMode;       // if set, uses $20000 - $5ffff for tiles
+
+#define BITMAP_MIRROR 0x1a000 // TODO: crashed on $19000
+byte uniqueTileMode;       // if set, uses BITMAP_MIRROR - $5ffff for tiles
                            // that can be modified independently
 int gTopBorder;
 int gBottomBorder;
@@ -347,7 +349,7 @@ void adjustBorders(byte extraRows, byte extraColumns)
     byte extraTopRows = 0;
     byte extraBottomRows = 0;
     int newBottomBorder;
-return;
+
     extraColumns++; // TODO: support for extra columns
     extraBottomRows = extraRows / 2;
     extraTopRows = extraRows - extraBottomRows;
@@ -866,14 +868,17 @@ void fc_printf(const char *format, ...)
 
 void fc_clearUniqueTiles()
 {
-    lfill(0x20000, 0, 0x8000);
-    lfill(0x28000, 0, 0x6000); // avoid C64 kernal
+    lfill(0x18000, 0, 0x7800); // $18000 - $1f800 = 30 KB
+    //  skip over DOS ($1f800 - $24000)
+    lfill(0x24000, 0, 0x8000); // $24000 - $2c000 = 32 KB
+    // skip over C64 kernal ($2c000 - $30000)
     lfill(0x30000, 0, 0x8000);
     lfill(0x38000, 0, 0x8000);
     lfill(0x40000, 0, 0x8000);
     lfill(0x48000, 0, 0x8000);
     lfill(0x50000, 0, 0x8000);
     lfill(0x58000, 0, 0x8000);
+    // total: 30 + 7*32 = 254 KB (need 250 for 640x400x64 screen)
 }
 
 void fc_clrscr()
@@ -1128,30 +1133,39 @@ void fc_setUniqueTileMode()
 void fc_displayTile(fciInfo *info, byte x0, byte y0, byte t_x, byte t_y, byte t_w, byte t_h, byte mergeTiles)
 {
     static byte x, y;
-    long toTileAddr;
-    long fromTileAddr;
     long screenAddr;
     word charIndex;
+    long toTileAddr;
+    long fromTileAddr;
+    long rawToTileAddr;
 
     for (y = t_y; y < t_y + t_h; ++y) {
         screenAddr = gFcioConfig->screenBase + 2* (x0 + (y0 + y - t_y) * (gScreenColumns + gScreenRRW));
         if(uniqueTileMode) {
             fromTileAddr = info->baseAdr + 64L*(t_x + (y * info->columns));
             // copy bitmap asset to location in $2xxxx - $5xxxx
-            toTileAddr = 0x20000 + 64L * (x0 + ((y + y0) * gScreenColumns));
-            if(toTileAddr >= 0x2dd00) toTileAddr += 0x2300; // C64 kernal
-            charIndex = toTileAddr / 64L;
-            if(mergeTiles) {
-                lcopy_transparent(fromTileAddr, toTileAddr, 64 * t_w, 0);
-            } else {
-                lcopy(fromTileAddr, toTileAddr, 64 * t_w);
-            }
+            rawToTileAddr = BITMAP_MIRROR + 64L * (x0 + ((y + y0) * gScreenColumns));
         } else {
             // use pointer directly to bitmap asset
             charIndex = info->baseAdr / 64L + t_x + (y * info->columns);
         }
         for (x = t_x; x < t_x + t_w; ++x)
         {
+            if(uniqueTileMode) {
+                toTileAddr = rawToTileAddr;
+                // skip over DOS if needed
+                if(toTileAddr + 64 >= 0x1f800) toTileAddr += 0x4800;
+                // skip over C64 kernal if needed
+                if(toTileAddr + 64 >= 0x2c000) toTileAddr += 0x4000;
+                if(mergeTiles) {
+                    lcopy_transparent(fromTileAddr, toTileAddr, 64, 0);
+                } else {
+                    lcopy(fromTileAddr, toTileAddr, 64);
+                }
+                charIndex = toTileAddr / 64L;
+                fromTileAddr += 64L;
+                rawToTileAddr += 64L;
+            }
             // set highbyte first to avoid blinking
             // while setting up the screeen
             lpoke(screenAddr + 1, charIndex / 256);

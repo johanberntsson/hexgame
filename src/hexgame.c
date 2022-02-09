@@ -16,7 +16,7 @@
     1. can fci be embedded or compressed?
     2. escape to reset the machine?
     3. Problems when binary > $8000???
-    4. Fix the AI
+    4. Improve the AI
 */
 
 #include <fcio.h>
@@ -25,7 +25,7 @@
 
 // add a song or not?
 #define ENABLE_MUSIC
-#define ENABLE_SAMPLES
+//#define ENABLE_SAMPLES
 
 // hexagon status (bitmask)
 #define HEX_EMPTY 0
@@ -131,17 +131,18 @@ void play_sample(unsigned char ch, unsigned short sample_address, unsigned short
   // pointer to end of sample
   POKE(0xD727 + ch_ofs, (sample_address + sample_length) & 0xff);
   POKE(0xD728 + ch_ofs, (sample_address + sample_length) >> 8);
+  // frequency
+  time_base = 0x1a00;
+  POKE(0xD724 + ch_ofs, time_base & 0xff);
+  POKE(0xD725 + ch_ofs, time_base >> 8);
+  POKE(0xD726 + ch_ofs, time_base >> 16);
   // volume
   //POKE(0xD729 + ch_ofs, 0x3F); // 1/4 Full volume
-  POKE(0xD729 + ch_ofs, 0xFF); // 1/4 Full volume
+  POKE(0xD729 + ch_ofs, 0xFF); // 4/4 Full volume
   // Enable playback of channel 0, 8-bit samples, signed
   POKE(0xD720 + ch_ofs, 0xA2);
   POKE(0xD711 + ch_ofs, 0x80);
 
-  time_base = 0x1000;
-  POKE(0xD724 + ch_ofs, time_base & 0xff);
-  POKE(0xD725 + ch_ofs, time_base >> 8);
-  POKE(0xD726 + ch_ofs, time_base >> 16);
 }
 #endif 
 
