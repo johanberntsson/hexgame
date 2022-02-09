@@ -5,6 +5,7 @@ DISCNAME="hexgame.d81"
 
 cat c65bin/c65toc64wrapper.prg bin/hexgame.c64 > bin/autoboot.c65
 
+
 mkdir -p res
 for filename in img-src/*.png; do
   echo $filename
@@ -16,8 +17,9 @@ done
 mkdir -p disc
 c1541 -format hexgame,sk d81 disc/$DISCNAME
 
+c1541 disc/$DISCNAME -write bin/autoboot.c65
+
 for filename in res/*; do
   c1541 disc/$DISCNAME -write $filename
 done
 
-c1541 disc/$DISCNAME -write bin/autoboot.c65

@@ -21,6 +21,8 @@
 
 #include <fcio.h>
 
+extern unsigned int loadExt(char *filename, himemPtr addr, byte skipCBMAddressBytes); // from fcio.c
+
 #define RND PEEK(0xdc04)
 
 // add a song or not?
@@ -111,8 +113,13 @@ char perm_x[MAX_SIZE * MAX_SIZE];
 char perm_y[MAX_SIZE * MAX_SIZE];
 
 #ifdef ENABLE_SAMPLES
-#include "sample01.c"
-#include "sample02.c"
+//#include "sample01.c"
+//#include "sample02.c"
+
+unsigned short sample1;
+unsigned short sample1_len;
+unsigned short sample2;
+unsigned short sample2_len;
 
 void play_sample(unsigned char ch, unsigned short sample_address, unsigned short sample_length)
 {
@@ -173,7 +180,7 @@ void init_graphics() {
 
 
 #ifdef ENABLE_MUSIC
-#include "music.c"
+//#include "music.c"
 
 void update_music() {
     // call music player updater
@@ -185,9 +192,11 @@ void update_music() {
     __asm__("jmp $ea31");
 }
 
+
 void init_music() {
     // skip the first 2 bytes (load address)
-    lcopy((unsigned short) &themodel_prg[2], 0xc046, themodel_prg_len - 2);
+    loadExt("themodel.prg", 0xc046, 1);
+    //lcopy((unsigned short) &themodel_prg[2], 0xc046, themodel_prg_len - 2);
 
     // The Model: init $c046, play $c0fa
     __asm__("jsr $c046");
@@ -390,7 +399,7 @@ byte player_turn() {
                 // only allowed if this hexagon is empty
                 if(board.tile[cx][cy] != HEX_CURSOR) {
 #ifdef ENABLE_SAMPLES
-                if(option_music == OPTION_MUSIC_OFF) play_sample(0, (unsigned short) Snare1, Snare1_len);
+                if(option_music == OPTION_MUSIC_OFF) play_sample(0, sample1, sample1_len);
 #endif
                     key = 0;
                 }
@@ -417,7 +426,7 @@ byte player_turn() {
     draw_board(1, 1);
 
 #ifdef ENABLE_SAMPLES
-    if(option_music == OPTION_MUSIC_OFF) play_sample(0, (unsigned short) SynClaves, SynClaves_len);
+    if(option_music == OPTION_MUSIC_OFF) play_sample(0, sample2, sample2_len);
 #endif
 
     board.white_last_x = px;
@@ -610,6 +619,14 @@ void main() {
     init_graphics();
 #ifdef ENABLE_MUSIC
     init_music();
+#endif
+#ifdef ENABLE_SAMPLES
+    sample1 = 0xc000;
+    sample1_len = 2000;
+    sample1 = 0xc800;
+    sample1_len = 1000;
+    loadExt("sample1", sample1, 0);
+    loadExt("sample2", sample2, 0);
 #endif
 
     for(;;) {
