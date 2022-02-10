@@ -113,10 +113,10 @@ char perm_x[MAX_SIZE * MAX_SIZE];
 char perm_y[MAX_SIZE * MAX_SIZE];
 
 #ifdef ENABLE_SAMPLES
-#include "sample01.c"
-#include "sample02.c"
+//#include "sample01.c"
+//#include "sample02.c"
 
-void play_sample(unsigned char ch, unsigned short sample_address, unsigned short sample_length)
+void play_sample(unsigned char ch, unsigned long sample_address, unsigned short sample_length)
 {
   unsigned ch_ofs = ch << 4;
   unsigned long time_base;
@@ -125,11 +125,11 @@ void play_sample(unsigned char ch, unsigned short sample_address, unsigned short
 
   // Start of sample
   POKE(0xD721 + ch_ofs, sample_address & 0xff);
-  POKE(0xD722 + ch_ofs, sample_address >> 8);
-  POKE(0xD723 + ch_ofs, 0);
+  POKE(0xD722 + ch_ofs, (sample_address >> 8) & 0xff);
+  POKE(0xD723 + ch_ofs, (sample_address >> 16) & 0xff);
   POKE(0xD72A + ch_ofs, sample_address & 0xff);
-  POKE(0xD72B + ch_ofs, sample_address >> 8);
-  POKE(0xD72C + ch_ofs, 0);
+  POKE(0xD72B + ch_ofs, (sample_address >> 8) & 0xff);
+  POKE(0xD72C + ch_ofs, (sample_address >> 16) & 0xff);
   // pointer to end of sample
   POKE(0xD727 + ch_ofs, (sample_address + sample_length) & 0xff);
   POKE(0xD728 + ch_ofs, (sample_address + sample_length) >> 8);
@@ -175,7 +175,7 @@ void init_graphics() {
 
 
 #ifdef ENABLE_MUSIC
-#include "music.c"
+//#include "music.c"
 
 void update_music() {
     // call music player updater
@@ -191,7 +191,9 @@ void update_music() {
 void init_music() {
     // skip the first 2 bytes (load address)
     //loadExt("themodel.prg", 0xc046, 1);
-    lcopy((unsigned short) &Armalyte_prg[2], 0xc000, Armalyte_prg_len - 2);
+    //lcopy((unsigned short) &Armalyte_prg[2], 0xc000, Armalyte_prg_len - 2);
+    loadExt("armalyte.prg", 0x16000, 1);
+    lcopy(0x16000, 0xc000, 3970);
 
     // The Model: init $c046, play $c0fa
     __asm__("lda #0");
@@ -395,7 +397,7 @@ byte player_turn() {
                 // only allowed if this hexagon is empty
                 if(board.tile[cx][cy] != HEX_CURSOR) {
 #ifdef ENABLE_SAMPLES
-                if(option_music == OPTION_MUSIC_OFF) play_sample(0, sample1, sample1_len);
+                if(option_music == OPTION_MUSIC_OFF) play_sample(0, 0x16000, 7500);
 #endif
                     key = 0;
                 }
@@ -422,7 +424,7 @@ byte player_turn() {
     draw_board(1, 1);
 
 #ifdef ENABLE_SAMPLES
-    if(option_music == OPTION_MUSIC_OFF) play_sample(0, sample2, sample2_len);
+    if(option_music == OPTION_MUSIC_OFF) play_sample(0, 0xa000, 6014);
 #endif
 
     board.white_last_x = px;
@@ -615,6 +617,10 @@ void main() {
     init_graphics();
 #ifdef ENABLE_MUSIC
     init_music();
+#endif
+#ifdef ENABLE_SAMPLES
+    loadExt("marba.wav", 0x16000, 0);
+    loadExt("downlead.wav", 0xa000, 0);
 #endif
 
     for(;;) {
