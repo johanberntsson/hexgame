@@ -27,7 +27,7 @@ extern unsigned int loadExt(char *filename, himemPtr addr, byte skipCBMAddressBy
 
 // add a song or not?
 #define ENABLE_MUSIC
-//#define ENABLE_SAMPLES
+#define ENABLE_SAMPLES
 
 // hexagon status (bitmask)
 #define HEX_EMPTY 0
@@ -113,13 +113,8 @@ char perm_x[MAX_SIZE * MAX_SIZE];
 char perm_y[MAX_SIZE * MAX_SIZE];
 
 #ifdef ENABLE_SAMPLES
-//#include "sample01.c"
-//#include "sample02.c"
-
-unsigned short sample1;
-unsigned short sample1_len;
-unsigned short sample2;
-unsigned short sample2_len;
+#include "sample01.c"
+#include "sample02.c"
 
 void play_sample(unsigned char ch, unsigned short sample_address, unsigned short sample_length)
 {
@@ -180,11 +175,11 @@ void init_graphics() {
 
 
 #ifdef ENABLE_MUSIC
-//#include "music.c"
+#include "music.c"
 
 void update_music() {
     // call music player updater
-    if(option_music == OPTION_MUSIC_ON) __asm__("jsr $c0fa");
+    if(option_music == OPTION_MUSIC_ON) __asm__("jsr $c059");
 
     // acknowledge IRQ
     POKE(0xd019, 0xff);
@@ -195,11 +190,12 @@ void update_music() {
 
 void init_music() {
     // skip the first 2 bytes (load address)
-    loadExt("themodel.prg", 0xc046, 1);
-    //lcopy((unsigned short) &themodel_prg[2], 0xc046, themodel_prg_len - 2);
+    //loadExt("themodel.prg", 0xc046, 1);
+    lcopy((unsigned short) &Armalyte_prg[2], 0xc000, Armalyte_prg_len - 2);
 
     // The Model: init $c046, play $c0fa
-    __asm__("jsr $c046");
+    __asm__("lda #0");
+    __asm__("jsr $c000");
 
     // Suspend interrupts during init
     __asm__("sei");   
@@ -355,7 +351,7 @@ void update_options(byte *key) {
         } else {
             option_music = OPTION_MUSIC_ON;
 #ifdef ENABLE_MUSIC
-            __asm__("jsr $c046"); // reinit song
+            __asm__("jsr $c000"); // reinit song
 #endif
         }
         *key = 0;
@@ -619,14 +615,6 @@ void main() {
     init_graphics();
 #ifdef ENABLE_MUSIC
     init_music();
-#endif
-#ifdef ENABLE_SAMPLES
-    sample1 = 0xc000;
-    sample1_len = 2000;
-    sample1 = 0xc800;
-    sample1_len = 1000;
-    loadExt("sample1", sample1, 0);
-    loadExt("sample2", sample2, 0);
 #endif
 
     for(;;) {

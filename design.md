@@ -105,7 +105,12 @@ The kernal is located in 2e000 - 2ffff (8192 bytes), so if I leave this as is, t
 
 I wanted to add music so I picked a SID file from [High Voltage SID Collection](https://www.hvsc.c64.org/). If needed the SID can be relocated using the sidreloc utility. I have available space at $c000, so I relocate with -p c0:
 
-    sidreloc -r 10-1f -p c0 model.sid music.sid
+    sidreloc -r 10-1f -p c0 originalmusic.sid music.sid
+
+Look out for warnings! If sidreloc says that there are references out of
+range, then these will not be converted and will probably overwrite
+your program later on, leading to hard-to-track-down bugs. I speak from
+experience.
 
 I then convert the SID to a prg file with psid64.
 
@@ -114,6 +119,7 @@ I then convert the SID to a prg file with psid64.
 The init and play addresses can be inspected with
 
     sidplay -v music.sid
+
 
 # Memory problems/fast IRQ loader
 

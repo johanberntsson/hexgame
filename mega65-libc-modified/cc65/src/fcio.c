@@ -140,6 +140,7 @@ unsigned int loadExt(char *filename, himemPtr addr, byte skipCBMAddressBytes)
     word readBytes;
 
     inFile = fopen(filename, "r");
+    if(inFile == NULL) return 0;
     readBytes = readExt(inFile, addr, skipCBMAddressBytes);
     fclose(inFile);
 
