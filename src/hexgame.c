@@ -397,7 +397,7 @@ byte player_turn() {
                 // only allowed if this hexagon is empty
                 if(board.tile[cx][cy] != HEX_CURSOR) {
 #ifdef ENABLE_SAMPLES
-                if(option_music == OPTION_MUSIC_OFF) play_sample(0, 0x16000, 7500);
+                if(option_music == OPTION_MUSIC_OFF) play_sample(0, 0xa000, 6014);
 #endif
                     key = 0;
                 }
@@ -424,7 +424,7 @@ byte player_turn() {
     draw_board(1, 1);
 
 #ifdef ENABLE_SAMPLES
-    if(option_music == OPTION_MUSIC_OFF) play_sample(0, 0xa000, 6014);
+    if(option_music == OPTION_MUSIC_OFF) play_sample(0, 0x16000, 7500);
 #endif
 
     board.white_last_x = px;
