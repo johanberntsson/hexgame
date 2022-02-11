@@ -16,9 +16,11 @@ A typical command to start the emulator is:
 # Compiling and building
 
 You need to install the cc65 compiler. scons is also needed
+
     > sudo apt install scons
 
 pypng is needed for converting new graphics
+
     > sudo apt install python3-pip
     > pip install pypng
 
