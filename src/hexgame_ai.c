@@ -118,13 +118,13 @@ void mcs_next_turn(byte *xx, byte *yy, byte max_num_empty, byte num_permutations
 // (wouldn't be needed if the AI was better)
 //
 byte is_chain(byte x, byte y) {
-    byte stone = board.tile[x][y] & (255 - HEX_CURSOR);
+    byte stone = (board.tile[x][y] & (255 - HEX_CURSOR));
     if(x == 0) return false;
     if(stone == HEX_EMPTY) return false;
     // check if the last white stone is part of a chain
-    return (board.tile[x - 1][y] & (255 - HEX_CURSOR) == stone ||
-            (y > 0 && board.tile[x - 1][y - 1]  & (255 - HEX_CURSOR)== stone) ||
-            (y < board.size_minus_1 && board.tile[x - 1][y + 1]  & (255 - HEX_CURSOR)== stone));
+    return ((board.tile[x - 1][y] & (255 - HEX_CURSOR)) == stone ||
+            (y > 0 && (board.tile[x - 1][y - 1]  & (255 - HEX_CURSOR)) == stone) ||
+            (y < board.size_minus_1 && (board.tile[x - 1][y + 1]  & (255 - HEX_CURSOR)) == stone));
 }
 
 byte guard_edge(byte x0, byte y0, byte *xx, byte *yy) {
@@ -159,7 +159,7 @@ byte check_soon_connected(byte x0, byte y0, byte *xx, byte *yy) {
     byte i, j, x1, y1, x2, y2, stone_type;
     int int_x, int_y;
 
-    stone_type = board.tile[x0][y0] & (255 - HEX_CURSOR);
+    stone_type = (board.tile[x0][y0] & (255 - HEX_CURSOR));
 
     // Call check_win to mark all stones that can be reached from
     // x0, y0 stone
@@ -181,7 +181,7 @@ byte check_soon_connected(byte x0, byte y0, byte *xx, byte *yy) {
             x2 = (byte) int_x;
             y2 = (byte) int_y;
             if(x2 == x0 && y2 == y0) continue; // don't select the start stone
-            if(board.tile[x2][y2] & (255 - HEX_CURSOR) == stone_type) {
+            if((board.tile[x2][y2] & (255 - HEX_CURSOR)) == stone_type) {
                 // we found an empty tile that connects two stones
 
                 // skip if these stones are already connected somehow

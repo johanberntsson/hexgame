@@ -166,6 +166,10 @@ fcioConf myConfig = {
 void init_graphics() {
     fc_init(1, 1, &myConfig, 0, 47, 0);
 
+
+    fc_textcolor(FC_COLOR_WHITE);
+    fc_putsxy(0, 0, "loading...");
+
     tiles = fc_loadFCI("hexgame.fci", 0, 0);
     fc_loadFCIPalette(tiles);
 
@@ -283,7 +287,7 @@ byte check_win(byte x, byte y) {
     board.queue_head = 1;
     board.queue_x[0] = x;
     board.queue_y[0] = y;
-    stone_tile = board.tile[x][y] & (255 - HEX_CURSOR);
+    stone_tile = (board.tile[x][y] & (255 - HEX_CURSOR));
     condition[0] = false; // any stone on the left/top edge?
     condition[1] = false; // any stone on the right/bottom edge?
 
@@ -304,7 +308,7 @@ byte check_win(byte x, byte y) {
                 // the adjacent position is a valid board position
                 xx = (byte) int_x;
                 yy = (byte) int_y;
-                if(board.tile[xx][yy] == stone_tile && board.visited[xx][yy] == false) {
+                if((board.tile[xx][yy] & (255 - HEX_CURSOR)) == stone_tile && board.visited[xx][yy] == false) {
                     board.visited[xx][yy] = true;
                     board.queue_x[board.queue_head] = xx;
                     board.queue_y[board.queue_head] = yy;
@@ -380,7 +384,7 @@ byte player_turn() {
         if(px != cx || py != cy) {
             if(cx < board.size) {
                 board.redraw[cx][cy] = true;
-                board.tile[cx][cy] &= 0xff-HEX_CURSOR;
+                board.tile[cx][cy] &= 255 - HEX_CURSOR;
             }
             board.redraw[px][py] = true;
             board.tile[px][py] |= HEX_CURSOR;
