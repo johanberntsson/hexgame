@@ -15,11 +15,11 @@ byte mcs_get_wins(byte skip_tile, byte num_permutations) {
         if(i != skip_tile) ++n;
     }
     for(n = 0; n < num_permutations; n++) {
+        // update options (music etc.) if a key was pressed
         i = PEEK(0xD610U);
         if(i) {
             POKE(0xD610U, 0);
             update_options(&i);
-            return 0;
         }
 
         // do random mutations
@@ -59,26 +59,25 @@ byte mcs_get_wins(byte skip_tile, byte num_permutations) {
     return win_count;
 }
 
-void mcs_next_turn(byte *xx, byte *yy, byte num_empty, byte num_permutations) {
+void mcs_next_turn(byte *xx, byte *yy, byte max_num_empty, byte num_permutations) {
     // check the number of potential/predicted wins for each empty
     // tile, pick the best as the next turn, and place the stone there.
     // return true if it was a winning move.
     // 
     // parameters to control time/CPU usage:
-    // num_empty: max number of empty tiles to consider
+    // max_num_empty: max number of empty tiles to consider
     // num_permutations: number of random games to play from each empty tile
     //
-    byte progress_range, num_tiles;
+    byte progress_range;
     byte wins, most_wins = 0;
     byte i, x, y;
 
     show_progress_bar();
-    get_empty_tiles(num_empty, true);
-    num_tiles = num_empty;
-    progress_range =  num_tiles / 10;
+    get_empty_tiles(max_num_empty, true);
+    progress_range =  num_empty / 10;
     if(progress_range == 0) progress_range = 1;
 
-    for(i = 0; i < num_tiles; i++) {
+    for(i = 0; i < num_empty; i++) {
         // place the stone on the board
         x = empty_x[i];
         y = empty_y[i];

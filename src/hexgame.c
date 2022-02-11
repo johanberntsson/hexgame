@@ -283,7 +283,7 @@ byte check_win(byte x, byte y) {
     board.queue_head = 1;
     board.queue_x[0] = x;
     board.queue_y[0] = y;
-    stone_tile = board.tile[x][y];
+    stone_tile = board.tile[x][y] & (255 - HEX_CURSOR);
     condition[0] = false; // any stone on the left/top edge?
     condition[1] = false; // any stone on the right/bottom edge?
 
@@ -420,7 +420,7 @@ byte player_turn() {
     }
 
     // put a white stone here
-    board.tile[px][py] = HEX_WHITE;
+    board.tile[px][py] = HEX_WHITE | HEX_CURSOR;
     board.redraw[px][py] = true;
     draw_board(1, 1);
 
@@ -488,9 +488,9 @@ void set_progress_bar(byte position) {
 }
 
 void hide_progress_bar() {
-    fc_putsxy(65,2, "           ");
+    fc_putsxy(65,2, "             ");
     fc_revers(false);
-    fc_putsxy(PROGRESS_TEXT_X, PROGRESS_TEXT_Y, "           ");
+    fc_putsxy(PROGRESS_TEXT_X, PROGRESS_TEXT_Y, "             ");
 }
 
 void show_options() {
