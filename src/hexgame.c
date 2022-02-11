@@ -545,7 +545,7 @@ void show_title_screen() {
     fc_bgcolor(FC_COLOR_BLACK);
     fc_bordercolor(FC_COLOR_BLACK);
     fc_textcolor(FC_COLOR_GREEN);
-    fc_displayTile(tiles, 19, 0, 0, 7, 40, 17, 0);
+    fc_displayTile(tiles, 19, 0, 0, 8, 40, 17, 0);
     fc_textcolor(FC_COLOR_YELLOW);
     fc_center(0, 19, 80, "Written in 2022 by Johan Berntsson");
     fc_textcolor(FC_COLOR_GREEN);
