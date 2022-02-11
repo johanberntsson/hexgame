@@ -24,6 +24,7 @@
 extern unsigned int loadExt(char *filename, himemPtr addr, byte skipCBMAddressBytes); // from fcio.c
 
 #define RND PEEK(0xdc04)
+#define TEXT_DELAY 6
 
 // add a song or not?
 #define ENABLE_MUSIC
@@ -561,7 +562,7 @@ void show_title_screen() {
         add_white_stone(0,0);
         add_black_stone(2,3);
         draw_board(TITLE_BOARD_X, TITLE_BOARD_Y);
-        if(show_title_text("In this game two players place stones the board", 4)) return;
+        if(show_title_text("In this game two players place stones on the board", TEXT_DELAY)) return;
 
         if(show_title_text("White tries to connect the left and right edges", 0)) return;
         add_white_stone(1,0);
@@ -575,7 +576,7 @@ void show_title_screen() {
         if(delay(1)) return;
         add_white_stone(3,0);
         draw_board(TITLE_BOARD_X, TITLE_BOARD_Y);
-        if(delay(1)) return;
+        if(delay(TEXT_DELAY)) return;
 
         if(show_title_text("And black tries to connect the top and bottom edges", 0)) return;
 
@@ -584,16 +585,19 @@ void show_title_screen() {
         if(delay(1)) return;
         add_black_stone(3,1);
         draw_board(TITLE_BOARD_X, TITLE_BOARD_Y);
-        if(delay(1)) return;
+        if(delay(TEXT_DELAY)) return;
 
-        if(show_title_text("But you can only add stones on empty tiles", 4)) return;
+        if(show_title_text("But you can only add stones on empty tiles", TEXT_DELAY)) return;
 
-        if(show_title_text("You play white, the computer is black", 4)) return;
+        if(show_title_text("You play white, the computer is black", TEXT_DELAY)) return;
 
-        if(show_title_text("Select an empty tile with the cursor keys and enter", 4)) return;
-        if(show_title_text("Select difficulty level with F2", 4)) return;
-        if(show_title_text("But even HARD isn't that difficult. Sorry", 4)) return;
-        if(show_title_text("Now press any key to start", 6)) return;
+        if(show_title_text("Select an empty tile with the cursor keys and enter", TEXT_DELAY)) return;
+
+        if(show_title_text("Select difficulty level with F2", TEXT_DELAY)) return;
+
+        if(show_title_text("But even HARD isn't that difficult. Sorry", TEXT_DELAY)) return;
+
+        if(show_title_text("Now press any key to start", TEXT_DELAY*2)) return;
     }
 }
 
@@ -622,6 +626,9 @@ void main() {
     loadExt("marba.wav", 0x16000, 0);
     loadExt("downlead.wav", 0xa000, 0);
 #endif
+
+    // clear keyboard buffer
+    POKE(0xD610U, 0);
 
     for(;;) {
         show_title_screen();
