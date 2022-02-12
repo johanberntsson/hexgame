@@ -3,8 +3,6 @@ The Hex game for the MEGA65 computer, with an AI using Monte Carlo simulation an
 
 ![Tiles](screenshots/title.png)
 
-See [design.md](design.md) for more information.
-
 # Getting started
 
 Run the hexgame.d81 file in an emulator or on a real MEGA65.
@@ -46,5 +44,7 @@ is easy to beat for a human player.
 
 It could be worth looking into a min-max algorithm for the AI instead.
 This is left as an exercise to the reader :)
+
+See [design.md](design.md) for more information.
 
 Feedback and pull requests are always welcome and appreciated.
