@@ -32,7 +32,7 @@ transparancy to allow overlapping bitmaps.
 
 The computer player uses a mix of heuristics and a Monte Carlo simulation
 to determine the next optimal move. Basically, how it works is we get all
-the empty spots in the board and stores them into a permutation which is
+the empty spots in the board and store them into a permutation list which is
 then randomized. The AI goes through the permutations, placing stones
 and looking for wins. If the computer won then we increment a win counter
 that is used to determine the best move.
