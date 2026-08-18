@@ -1,3 +1,12 @@
+/* The computer player: see src/hexgame_ai.h for the interface, and
+   tools/hexsim for the harness that measures whether a change to any of this
+   was an improvement.
+*/
+
+#include "hexgame_ai.h"
+
+byte option_difficulty;
+
 //
 // Monte Carlo simulation routines
 //
@@ -15,12 +24,7 @@ byte mcs_get_wins(byte skip_tile, byte num_permutations) {
         if(i != skip_tile) ++n;
     }
     for(n = 0; n < num_permutations; n++) {
-        // update options (music etc.) if a key was pressed
-        i = PEEK(0xD610U);
-        if(i) {
-            POKE(0xD610U, 0);
-            update_options(&i);
-        }
+        ai_poll_input(); // so F1/F2 still work during a long think
 
         // do random mutations
         for(i=num_empty - 1; i>1; i--) {
@@ -110,6 +114,230 @@ void mcs_next_turn(byte *xx, byte *yy, byte max_num_empty, byte num_permutations
     // restore the board (make all empty tiles empty again)
     for(i = 0; i < num_empty; i++) {
         board.tile[empty_x[i]][empty_y[i]] = HEX_EMPTY;
+    }
+}
+
+
+//
+// Shortest connection search
+//
+// The Monte Carlo player above asks "if I put a stone here and then both sides
+// play at random, how often do I win". Twenty random fills of a 9x9 board is
+// too few for that question to have a stable answer, and a MEGA65 cannot
+// afford twenty thousand -- which is why the hard level was still easy to
+// beat. This asks a different question, one that has an exact answer that can
+// be computed in full: **how many more stones would each side need?**
+//
+// For a colour, give every cell a cost -- 0 for a stone of that colour, 1 for
+// an empty cell, and unreachable for the opponent's -- and the cheapest path
+// between the two edges is the number of stones that side still has to place.
+// Four of those distance fields (from each of the four edges) are enough to
+// score every empty cell at once: a cell that is on a short path for black is
+// worth taking, and a cell that is on a short path for white is worth taking
+// away.
+//
+// It is also **much cheaper than the Monte Carlo search it replaces**: four
+// searches over 81 cells for a whole move, against twenty board fills and up
+// to nine winner checks for each of up to 81 candidates.
+
+#define DIST_INF 255
+
+// Distances to each of the four edges. Black connects top to bottom, white
+// left to right.
+static byte dist_black_top[MAX_SIZE][MAX_SIZE];
+static byte dist_black_bottom[MAX_SIZE][MAX_SIZE];
+static byte dist_white_left[MAX_SIZE][MAX_SIZE];
+static byte dist_white_right[MAX_SIZE][MAX_SIZE];
+
+// The search queue. A cell is only ever in it once -- pf_queued says which are
+// -- so 81 entries is the most it can hold and the ring never fills. 128
+// rather than 82 so that the wrap is a mask and not a division.
+#define PF_QUEUE_SIZE 128
+#define PF_QUEUE_MASK 127
+static byte pf_queue[PF_QUEUE_SIZE];
+static byte pf_queued[MAX_SIZE][MAX_SIZE];
+static byte pf_head, pf_tail;
+
+// Cells travel through the queue packed one to a byte. The board is at most
+// nine wide, so a nibble each is enough and the unpacking is a shift.
+#define PF_PACK(x, y) (byte)(((x) << 4) | (y))
+
+// What one more cell costs the given colour: nothing if it already has a stone
+// there, one stone if it is empty, and unreachable if the opponent holds it.
+static byte cell_cost(byte x, byte y, byte stone) {
+    byte t = board.tile[x][y] & (HEX_WHITE | HEX_BLACK);
+    if(t == HEX_EMPTY) return 1;
+    return (t == stone) ? 0 : DIST_INF;
+}
+
+static void pf_push(byte x, byte y, byte front) {
+    if(pf_queued[x][y]) return;
+    pf_queued[x][y] = true;
+    if(front) {
+        pf_head = (pf_head - 1) & PF_QUEUE_MASK;
+        pf_queue[pf_head] = PF_PACK(x, y);
+    } else {
+        pf_queue[pf_tail] = PF_PACK(x, y);
+        pf_tail = (pf_tail + 1) & PF_QUEUE_MASK;
+    }
+}
+
+// Fill `dist` with, for every cell, the number of stones `stone` would still
+// have to place to link that cell to one edge.
+//
+// The weights are only ever 0 or 1, so this pushes the free steps to the front
+// of the queue and the paid ones to the back and comes out with the cells in
+// very nearly the right order -- a cell that is improved after it has been
+// dealt with simply goes back in the queue, which on a board this size happens
+// rarely and costs a few hundred cycles when it does.
+//
+// `vertical` is true for black, whose edges are the top and bottom rows;
+// `far` picks the second of the two edges.
+static void path_field(byte stone, byte vertical, byte far,
+                       byte dist[MAX_SIZE][MAX_SIZE]) {
+    byte x, y, i, packed, cost, nd;
+    int int_x, int_y;
+
+    for(x = 0; x < board.size; x++) {
+        for(y = 0; y < board.size; y++) {
+            dist[x][y] = DIST_INF;
+            pf_queued[x][y] = false;
+        }
+    }
+    pf_head = 0;
+    pf_tail = 0;
+
+    for(i = 0; i < board.size; i++) {
+        if(vertical) {
+            x = i;
+            y = far ? board.size_minus_1 : 0;
+        } else {
+            x = far ? board.size_minus_1 : 0;
+            y = i;
+        }
+        cost = cell_cost(x, y, stone);
+        if(cost == DIST_INF) continue;
+        dist[x][y] = cost;
+        pf_push(x, y, cost == 0);
+    }
+
+    while(pf_head != pf_tail) {
+        packed = pf_queue[pf_head];
+        pf_head = (pf_head + 1) & PF_QUEUE_MASK;
+        x = packed >> 4;
+        y = packed & 15;
+        pf_queued[x][y] = false;
+
+        for(i = 0; i < 6; i++) {
+            int_x = x + direction[i][0];
+            int_y = y + direction[i][1];
+            if(!is_inside_board(int_x, int_y)) continue;
+            cost = cell_cost((byte) int_x, (byte) int_y, stone);
+            if(cost == DIST_INF) continue;
+            nd = dist[x][y] + cost;
+            if(nd < dist[(byte) int_x][(byte) int_y]) {
+                dist[(byte) int_x][(byte) int_y] = nd;
+                pf_push((byte) int_x, (byte) int_y, cost == 0);
+            }
+        }
+    }
+}
+
+// How many stones a side needs for a connection that goes through one cell:
+// its distance to each of the two edges, less one because an empty cell is
+// counted by both.
+static byte connection_cost(byte to_near, byte to_far) {
+    word sum;
+    if(to_near == DIST_INF || to_far == DIST_INF) return DIST_INF;
+    sum = (word) to_near + to_far;
+    if(sum < 1) return 0;
+    sum -= 1;
+    return (sum > 250) ? 250 : (byte) sum;
+}
+
+// How far from the middle of the board, as a tie break. On an empty board
+// every cell needs the same number of stones and every score below is equal;
+// without this the opening move would be a corner as often as the centre.
+static byte off_centre(byte x, byte y) {
+    byte mid = board.size >> 1;
+    byte dx = (x > mid) ? x - mid : mid - x;
+    byte dy = (y > mid) ? y - mid : mid - y;
+    return dx + dy;
+}
+
+void path_next_turn(byte *xx, byte *yy) {
+    byte x, y;
+    byte black_cost, white_cost, score;
+    byte best_score = 255, best_black = 255, best_centre = 255;
+    byte ties = 0;
+    byte blocking = false;
+
+    // No progress bar. Four searches over 81 cells is a few hundredths of a
+    // second on a MEGA65, and "Thinking..." appearing and vanishing between
+    // one frame and the next reads as a glitch rather than as progress.
+    path_field(HEX_BLACK, true,  false, dist_black_top);
+    path_field(HEX_BLACK, true,  true,  dist_black_bottom);
+    path_field(HEX_WHITE, false, false, dist_white_left);
+    path_field(HEX_WHITE, false, true,  dist_white_right);
+
+    // A last resort that is never reached on a board with an empty cell on it,
+    // but leaves *xx and *yy defined if one ever is not.
+    *xx = 0;
+    *yy = 0;
+
+    for(x = 0; x < board.size; x++) {
+        for(y = 0; y < board.size; y++) {
+            if(board.tile[x][y] != HEX_EMPTY) continue;
+
+            black_cost = connection_cost(dist_black_top[x][y],
+                                         dist_black_bottom[x][y]);
+            white_cost = connection_cost(dist_white_left[x][y],
+                                         dist_white_right[x][y]);
+
+            // This cell finishes the game. Nothing else is worth comparing.
+            if(black_cost <= 1) {
+                *xx = x;
+                *yy = y;
+                return;
+            }
+
+            // White finishes here next move unless it is taken away. Blocking
+            // outranks every ordinary move, but not every block is as good as
+            // every other, so the search goes on among the blocks alone.
+            if(white_cost <= 1 && !blocking) {
+                blocking = true;
+                best_score = 255;
+                best_black = 255;
+                best_centre = 255;
+                ties = 0;
+            }
+            if(blocking && white_cost > 1) continue;
+
+            score = (black_cost > 125) ? 250 : black_cost;
+            score += (white_cost > 125) ? 125 : white_cost;
+
+            if(score < best_score ||
+               (score == best_score &&
+                (black_cost < best_black ||
+                 (black_cost == best_black &&
+                  off_centre(x, y) < best_centre)))) {
+                best_score = score;
+                best_black = black_cost;
+                best_centre = off_centre(x, y);
+                ties = 1;
+                *xx = x;
+                *yy = y;
+            } else if(score == best_score && black_cost == best_black &&
+                      off_centre(x, y) == best_centre) {
+                // Choose evenly among equals, so that the computer does not
+                // play the same game every time.
+                ++ties;
+                if((RND % ties) == 0) {
+                    *xx = x;
+                    *yy = y;
+                }
+            }
+        }
     }
 }
 
@@ -224,16 +452,12 @@ byte build_chain(byte x0, byte y0, byte *xx, byte *yy) {
 // computer turn handlers
 //
 void computer_turn_hard(byte *x, byte *y) {
-    // block if the human player is extending a chain on the right
-    if(guard_edge(board.white_last_x, board.white_last_y, x, y))
-        return;
-    // try to block human player
-    if(check_soon_connected(board.white_last_x, board.white_last_y, x, y))
-        return;
-    // add final stone to computer chain
-    if(check_soon_connected(board.black_last_x, board.black_last_y, x, y))
-        return;
-    mcs_next_turn(x, y, 81, 20);
+    // **No heuristics in front of this one.** guard_edge and
+    // check_soon_connected exist to stop the Monte Carlo player making its
+    // worst moves; the connection search already sees everything they were
+    // guessing at, and putting them first only overrides it with something
+    // that looks one stone ahead.
+    path_next_turn(x, y);
 }
 
 void computer_turn_normal(byte *x, byte *y) {

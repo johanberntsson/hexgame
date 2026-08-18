@@ -20,21 +20,40 @@
 */
 
 #include <fcio.h>
+#include <calypsi/intrinsics6502.h>
+
+#include "hexboard.h"
+#include "hexgame_ai.h"
 
 extern unsigned int loadExt(char *filename, himemPtr addr, byte skipCBMAddressBytes); // from fcio.c
 
-#define RND PEEK(0xdc04)
+// **The resource names are upper case because that is what is on the disk.**
+// CBM directory entries hold PETSCII, where the letters are $41-$5A -- the
+// same codes upper case ASCII uses -- and the KERNAL compares the name it is
+// given byte for byte. cc65's runtime translated ASCII to PETSCII on the way
+// into open(); Calypsi passes the bytes through, so a lower case name here
+// matches nothing on the disk and the open quietly yields an empty file.
+
+// The two samples live in the free chip RAM of bank 1, above the screen, the
+// reserved bitmap and the palettes (see myConfig below); the audio DMA reads
+// them straight out of there. The tune is the exception: the CPU has to
+// execute it, so it goes in the 4 KB the linker script holds back above the
+// program. See mega65-hexgame.scm and src/music_irq.s.
+#define MUSIC_ADDRESS   0x9000l
+#define MARBA_ADDRESS   0x16000l
+#define MARBA_LENGTH    7500
+#define DOWNLEAD_ADDRESS 0x18000l
+#define DOWNLEAD_LENGTH 6014
+
+// src/music_irq.s
+void music_init(byte song);
+void music_install(void);
+
 #define TEXT_DELAY 6
 
 // add a song or not?
 #define ENABLE_MUSIC
 #define ENABLE_SAMPLES
-
-// hexagon status (bitmask)
-#define HEX_EMPTY 0
-#define HEX_WHITE 1
-#define HEX_BLACK 2
-#define HEX_CURSOR 4
 
 // Keyboard input values
 #define KEY_F1 241
@@ -47,16 +66,13 @@ extern unsigned int loadExt(char *filename, himemPtr addr, byte skipCBMAddressBy
 #define KEY_ENTER 13
 #define KEY_SPACE 32
 
-// global options
+// global options. option_difficulty belongs to the AI and lives in
+// hexgame_ai.c; the values it takes are in hexgame_ai.h.
 byte option_music;
-byte option_difficulty;
 #define OPTION_MUSIC_ON  0
 #define OPTION_MUSIC_OFF 1
-#define OPTION_DIFFICULTY_EASY 0
-#define OPTION_DIFFICULTY_NORMAL 1
-#define OPTION_DIFFICULTY_HARD 2
-char option_music_text[][] = { "ON ", "OFF" };
-char option_difficulty_text[][] = { "EASY  ", "NORMAL", "HARD  " };
+char option_music_text[][4] = { "ON ", "OFF" };
+char option_difficulty_text[][7] = { "EASY  ", "NORMAL", "HARD  " };
 
 // offsets on the title screen
 #define TITLE_TEXT_Y 22
@@ -68,50 +84,6 @@ char option_difficulty_text[][] = { "EASY  ", "NORMAL", "HARD  " };
 // empty line used to hide previous texts
 char *empty40 = "                                        ";
 
-
-// Board data
-#define MAX_SIZE 9      // more won't fit on the screen
-#define BLACK_PLAYER 0
-#define WHITE_PLAYER 1
-#define NOWINNER 2
-#define ABORT 3
-
-typedef struct {
-    byte size;
-    byte size_minus_1;
-
-    // The board state
-    byte side; // current player
-    char tile[MAX_SIZE][MAX_SIZE];
-    char redraw[MAX_SIZE][MAX_SIZE];
-    byte white_last_x, white_last_y; // human player's last stone position
-    byte black_last_x, black_last_y; // computer player's last stone position
-
-    // breadth-first search helpers (for finding winner)
-    char queue_head;
-    char visited[MAX_SIZE][MAX_SIZE];
-    // in worst case half of the board is white, half is black
-    char queue_x[(MAX_SIZE * MAX_SIZE)/2]; 
-    char queue_y[(MAX_SIZE * MAX_SIZE)/2]; 
-
-
-} Board;
-Board board;
-
-// breadth-first search helpers
-int direction[6][2] = {
-    {0,1}, {1, -1}, {1, 0}, // adjacent tiles
-    {-1, 0}, {-1, 1}, {0,-1}
-};
-
-// Monte Carlo simulation helpers
-// empty tiles when starting mcs
-byte num_empty;
-char empty_x[MAX_SIZE * MAX_SIZE];
-char empty_y[MAX_SIZE * MAX_SIZE];
-// permutations of empty tiles during mcs
-char perm_x[MAX_SIZE * MAX_SIZE];
-char perm_y[MAX_SIZE * MAX_SIZE];
 
 #ifdef ENABLE_SAMPLES
 //#include "sample01.c"
@@ -163,65 +135,60 @@ fcioConf myConfig = {
     0xff81000l, // attribute/colour ram
 };
 
-void init_graphics() {
-    fc_init(1, 1, &myConfig, 0, 47, 0);
+#ifdef ENABLE_MUSIC
+void load_music() {
+    // The tune is raw SID data with no player in front of it, so it goes
+    // straight to the address it was relocated for. Skip the two CBM load
+    // address bytes.
+    loadExt("MUSIC.PRG", MUSIC_ADDRESS, 1);
+    music_init(0);
+}
+#endif
 
+// **Everything that touches the disk happens here, and only here.**
+// enter_tile_mode() below flattens the memory map into the C64 configuration,
+// and the KERNAL that survives that is the C64 one at $2E000 -- which this
+// program, booted by the C65 ROM, never initialised and cannot open a file
+// through. The cc65 build could load whenever it liked because it was a C64
+// mode program from the first instruction; this one gets one chance, before
+// the map changes.
+void load_resources() {
+    fc_init(1, 1, &myConfig, 0, 47, 0);
 
     fc_textcolor(FC_COLOR_WHITE);
     fc_putsxy(0, 0, "loading...");
 
-    tiles = fc_loadFCI("hexgame.fci", 0, 0);
+    tiles = fc_loadFCI("HEXGAME.FCI", 0, 0);
     fc_loadFCIPalette(tiles);
+
+#ifdef ENABLE_MUSIC
+    load_music();
+#endif
+#ifdef ENABLE_SAMPLES
+    loadExt("MARBA.WAV", MARBA_ADDRESS, 0);
+    loadExt("DOWNLEAD.WAV", DOWNLEAD_ADDRESS, 0);
+#endif
+}
+
+// Hand the machine over to the game: $20000-$5FFFF becomes writable RAM for
+// the per-character tile data, and the interrupt becomes ours.
+//
+// Interrupts stay off across the whole of it. fc_setUniqueTileMode() leaves
+// the C65 ROM unmapped while $0314 still points into it, so an interrupt taken
+// between the two calls lands in whatever is at that address now.
+void enter_tile_mode() {
+    __disable_interrupts();
 
     // this makes $20000 - $5ffff for character data (so tiles can be modified)
     fc_setUniqueTileMode();
 
-}
-
-
 #ifdef ENABLE_MUSIC
-//#include "music.c"
-
-void update_music() {
-    // call music player updater
-    if(option_music == OPTION_MUSIC_ON) __asm__("jsr $c059");
-
-    // acknowledge IRQ
-    POKE(0xd019, 0xff);
-    // Return to normal IRQ handler 
-    __asm__("jmp $ea31");
-}
-
-
-void init_music() {
-    // skip the first 2 bytes (load address)
-    //loadExt("themodel.prg", 0xc046, 1);
-    //lcopy((unsigned short) &Armalyte_prg[2], 0xc000, Armalyte_prg_len - 2);
-    loadExt("armalyte.prg", 0x16000, 1);
-    lcopy(0x16000, 0xc000, 3970);
-
-    // The Model: init $c046, play $c0fa
-    __asm__("lda #0");
-    __asm__("jsr $c000");
-
-    // Suspend interrupts during init
-    __asm__("sei");   
-    //  Disable CIA
-    POKE(0xdc0d, 0x7f); 
-    // Enable raster interrupts
-    POKE(0xd01a, PEEK(0xd01a) | 1);
-    // High bit of raster line cleared, we're
-    // only working within single byte ranges
-    POKE(0xd011, PEEK(0xd011) & 0x7f);
-    // We want an interrupt at the top line
-    POKE(0xd012, 140);
-    // Push low and high byte of our routine into IRQ vector addresses
-    POKE(0x0314, ((unsigned int) &update_music) & 0xff);
-    POKE(0x0315, ((unsigned int) &update_music) >> 8);
-    // Enable interrupts again
-    __asm__("cli");   
-}
+    music_install();
 #endif
+
+    __enable_interrupts();
+}
+
 
 void draw_board(byte x0, byte y0) {
     byte x, y, xx, yy;
@@ -241,86 +208,6 @@ void draw_board(byte x0, byte y0) {
             }
         }
     }
-}
-
-void init_game(byte size) {
-    byte x,y;
-    board.size = size;
-    board.size_minus_1 = size - 1;
-    for(x = 0; x < size;  x++) {
-        for(y = 0; y < size;  y++) {
-            board.tile[x][y] = HEX_EMPTY;
-            board.redraw[x][y] = true;
-        }
-    }
-}
-
-void check_edges(byte x, byte y, byte* condition) {
-    // set condition[0] to true stone at top/left edge, and condition[1] if bottom/right
-   if(board.side == BLACK_PLAYER) {
-      if(y == 0) condition[0] = true;
-      if(y == board.size_minus_1) condition[1] = true;
-   } else {
-      if(x == 0) condition[0] = true;
-      if(x == board.size_minus_1) condition[1] = true;
-   }
-}
-
-byte is_inside_board(int x, int y) {
-    return (x >= 0 && y >= 0 && x < board.size && y < board.size);
-}
-
-byte check_win(byte x, byte y) {
-    // do a breadth-first search from the latest placed stone (at x, y)
-    int int_x, int_y; // since direction is int and has negative values
-    byte i, j, xx, yy, stone_tile;
-    byte condition[2];
-
-    // first clear bfs history
-    for(i = 0; i < board.size; i++) {
-        for(j = 0; j < board.size; j++) {
-            board.visited[i][j] = false;
-        }
-    }
-
-    // add the current stone to the queue
-    board.queue_head = 1;
-    board.queue_x[0] = x;
-    board.queue_y[0] = y;
-    stone_tile = (board.tile[x][y] & (255 - HEX_CURSOR));
-    condition[0] = false; // any stone on the left/top edge?
-    condition[1] = false; // any stone on the right/bottom edge?
-
-    while(board.queue_head > 0) {
-        // pop the head of the queue
-        --board.queue_head;
-        x = board.queue_x[board.queue_head];
-        y = board.queue_y[board.queue_head];
-        check_edges(x, y, condition);
-        board.visited[x][y] = true;
-
-        // add all unvisited adjacent tiles of the same colour
-        for(i = 0; i < 6; i++) {
-            int_x = x + direction[i][0];
-            int_y = y + direction[i][1];
-            if(is_inside_board(int_x, int_y)) {
-            //if(int_x >= 0 && int_y >= 0 && int_x < board.size && int_y < board.size) {
-                // the adjacent position is a valid board position
-                xx = (byte) int_x;
-                yy = (byte) int_y;
-                if((board.tile[xx][yy] & (255 - HEX_CURSOR)) == stone_tile && board.visited[xx][yy] == false) {
-                    board.visited[xx][yy] = true;
-                    board.queue_x[board.queue_head] = xx;
-                    board.queue_y[board.queue_head] = yy;
-                    ++board.queue_head;
-                }
-            } else {
-            }
-        }
-    }
-
-    if(condition[0] && condition[1]) return board.side;
-    return NOWINNER;
 }
 
 void show_win_screen() {
@@ -358,7 +245,7 @@ void update_options(byte *key) {
         } else {
             option_music = OPTION_MUSIC_ON;
 #ifdef ENABLE_MUSIC
-            __asm__("jsr $c000"); // reinit song
+            music_init(0); // reinit song
 #endif
         }
         *key = 0;
@@ -402,7 +289,7 @@ byte player_turn() {
                 // only allowed if this hexagon is empty
                 if(board.tile[cx][cy] != HEX_CURSOR) {
 #ifdef ENABLE_SAMPLES
-                if(option_music == OPTION_MUSIC_OFF) play_sample(0, 0xa000, 6014);
+                if(option_music == OPTION_MUSIC_OFF) play_sample(0, DOWNLEAD_ADDRESS, DOWNLEAD_LENGTH);
 #endif
                     key = 0;
                 }
@@ -429,48 +316,12 @@ byte player_turn() {
     draw_board(1, 1);
 
 #ifdef ENABLE_SAMPLES
-    if(option_music == OPTION_MUSIC_OFF) play_sample(0, 0x16000, 7500);
+    if(option_music == OPTION_MUSIC_OFF) play_sample(0, MARBA_ADDRESS, MARBA_LENGTH);
 #endif
 
     board.white_last_x = px;
     board.white_last_y = py;
     return check_win(px, py);
-}
-
-void get_empty_tiles(byte max_tiles, bool shuffle) {
-    // creates a list of empty tiles in Board.empty_*
-    // useful for mfs
-    byte i, x, y, swap;
-    num_empty = 0;
-    for(x = 0; x < board.size; x++) {
-        for(y = 0; y < board.size; y++) {
-            if(board.tile[x][y] == HEX_EMPTY) {
-                empty_x[num_empty] = x;
-                empty_y[num_empty] = y;
-                ++num_empty;
-            }
-        }
-    }
-
-    if(max_tiles > num_empty) max_tiles = num_empty;
-
-    if(shuffle) {
-        // shuffle the list using Knuth's algorithm P (shuffling)
-        //for(x = board.num_empty - 1; x > 0; x--) 
-        //    y =  RND % x;
-        i = num_empty;
-        for(x = 0; x < max_tiles ; x++) {
-            y =  x + (RND % i);
-            --i;
-            swap = empty_x[x];
-            empty_x[x] = empty_x[y];
-            empty_x[y] = swap;
-            swap = empty_y[x];
-            empty_y[x] = empty_y[y];
-            empty_y[y] = swap;
-        }
-    }
-    num_empty = max_tiles;
 }
 
 void show_progress_bar() {
@@ -495,6 +346,16 @@ void hide_progress_bar() {
     fc_putsxy(65,2, "             ");
     fc_revers(false);
     fc_putsxy(PROGRESS_TEXT_X, PROGRESS_TEXT_Y, "             ");
+}
+
+// The AI calls this from inside its search so that a key pressed during a long
+// think is acted on rather than dropped. See hexgame_ai.h.
+void ai_poll_input(void) {
+    byte key = PEEK(0xD610U);
+    if(key) {
+        POKE(0xD610U, 0);
+        update_options(&key);
+    }
 }
 
 void show_options() {
@@ -613,23 +474,15 @@ void show_game_screen() {
     draw_board(1, 1);
 }
 
-#include "hexgame_ai.c"
-
-void main() {
+int main(void) {
     word turn;
     byte game_state;
 
     option_music = OPTION_MUSIC_ON;
     option_difficulty = OPTION_DIFFICULTY_NORMAL;
 
-    init_graphics();
-#ifdef ENABLE_MUSIC
-    init_music();
-#endif
-#ifdef ENABLE_SAMPLES
-    loadExt("marba.wav", 0x16000, 0);
-    loadExt("downlead.wav", 0xa000, 0);
-#endif
+    load_resources();
+    enter_tile_mode();
 
     // clear keyboard buffer
     POKE(0xD610U, 0);

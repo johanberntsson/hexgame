@@ -65,12 +65,9 @@ void lfill(long destination_address, unsigned char value,
            unsigned int count);
 void lfill_skip(long destination_address, unsigned char value,
                 unsigned int count, unsigned char skip);
-#ifdef __CC65__
-#define POKE(X, Y) (*(unsigned char *)(X)) = Y
-#define PEEK(X) (*(unsigned char *)(X))
-#else
-#define POKE(X, Y)
-#define PEEK(X)
-#endif
+// Hardware registers change under us, so these must not be optimised away or
+// reordered -- cc65 never cached a load through a plain pointer, Calypsi will.
+#define POKE(X, Y) (*(volatile unsigned char *)(unsigned int)(X) = (Y))
+#define PEEK(X) (*(volatile unsigned char *)(unsigned int)(X))
 
 #endif

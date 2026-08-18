@@ -120,6 +120,12 @@ The init and play addresses can be inspected with
 
     sidplay -v music.sid
 
+**The tune moved off $C000 in 2026.** That address was free because the game
+was a C64 mode program launched from a wrapper; the Calypsi build is a C65 mode
+program and $C000-$CFFF is the C65's interface ROM. It is relocated to $9000
+now, into a hole `mega65-hexgame.scm` holds back above the program, and the
+sidreloc invocation that puts it there is in `assets/music/Makefile`.
+
 
 # Memory problems/fast IRQ loader
 
@@ -141,4 +147,40 @@ Normal and hard levels try to implement a Monte Carlo simulation. It works by pl
 
 ## Heuristics
 
-To at least stop the worst stupid moves I combined the Monte Carlo simulation with a few heuristics that try to block chains of the opponent when they get long.
+To at least stop the worst stupid moves I combined the Monte Carlo simulation
+with a few heuristics that try to block chains of the opponent when they get
+long.
+
+## Shortest connection (2026)
+
+The hard level does not do any of the above any more. The Monte Carlo search
+is still what the normal level plays, and it is still limited by the same
+thing: a MEGA65 can afford about twenty random fills of the board per candidate
+move, and twenty is nowhere near enough for the answer to mean anything.
+
+The hard level asks a question with an exact answer instead. Give every cell a
+cost for one colour -- nothing where that colour already has a stone, one where
+the cell is empty, unreachable where the opponent holds it -- and the cheapest
+path between that colour's two edges is exactly the number of stones it still
+has to place. That is a shortest path problem on 81 cells with weights of only
+0 and 1, which a 0-1 breadth first search solves in one sweep.
+
+Four of those, one from each edge of the board, score every empty cell at once:
+`top(c) + bottom(c) - 1` is the length of black's best connection *through* c,
+and `left(c) + right(c) - 1` is white's. Take the cell that is smallest for
+both, with two exceptions that outrank everything: play a cell that finishes
+the game, and block a cell that would let the opponent finish next move.
+
+It is worth being clear about what this does not do. It never considers a
+reply, so it is not a search in the min-max sense at all -- it is a static
+evaluation applied to every legal move. It has no idea about bridges or other
+two-connections, which is what a strong Hex program is mostly made of. What it
+does have is a picture of the whole board that is *correct* rather than
+sampled, and that alone is worth about 90 points in 100 against the Monte Carlo
+player it replaced, in a fraction of the time: four sweeps for a whole move,
+against twenty board fills for each of up to 81 candidates.
+
+`tools/hexsim` is what those numbers come from. It builds `src/hexboard.c` and
+`src/hexgame_ai.c` with the host compiler and plays the AI against itself a few
+hundred times a second, which is why the AI's board and rules are a separate
+file from the game's screen handling now.

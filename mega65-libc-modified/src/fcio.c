@@ -22,8 +22,7 @@
 
 #include <fcio.h>
 #include <memory.h>
-#include <c64.h>
-#include <cbm.h>
+#include <stdint.h>
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -31,6 +30,12 @@
 #include <string.h>
 #include <time.h>
 #include <stdbool.h>
+
+// KERNAL CHROUT, which is all this file ever wanted from cc65's <cbm.h>.
+// Calling the ROM through a function pointer is the Calypsi MEGA65 SDK's own
+// idiom for KERNAL entries -- see contrib/MEGA65-SDK/src/lib.h -- and the
+// convention puts the byte in A, where CHROUT wants it.
+#define cbm_k_bsout ((void (*)(uint8_t))0xffd2)
 
 #define MAX_FCI_BLOCKS 16
 #define MAX_WINDOWS 8
@@ -83,7 +88,7 @@ fcioConf stdConfig = {
 #define bitflip(byte, nbit) ((byte) ^= (1 << (nbit)))
 #define bitcheck(byte, nbit) ((byte) & (1 << (nbit)))
 
-#define COLOR_RAM_OFFSET gFcioConfig->colorBase - 0xff80000l
+#define COLOR_RAM_OFFSET (gFcioConfig->colorBase - 0xff80000l)
 
 byte gScreenRows;          // number of screen rows (in characters)
 byte gScreenColumns;       // number of screen columns (in characters)
@@ -197,19 +202,12 @@ void fc_init(byte h640, byte v400, fcioConf *config, byte rows, byte rrw_size, c
     fc_textcolor(FC_COLOR_GREEN);
 }
 
-static unsigned char swp;
-unsigned char nyblswap(unsigned char in) // oh why?!
+// The palette registers hold each nybble in the other half of the byte. This
+// was six lines of cc65 inline assembly (the asl/adc/rol swap idiom) writing
+// through a static; it is the same six instructions written as what they mean.
+unsigned char nyblswap(unsigned char in)
 {
-    swp = in;
-    __asm__("lda %v", swp);
-    __asm__("asl  a");
-    __asm__("adc  #$80");
-    __asm__("rol a");
-    __asm__("asl a");
-    __asm__("adc  #$80");
-    __asm__("rol  a");
-    __asm__("sta %v", swp);
-    return swp;
+    return (unsigned char)((in >> 4) | (in << 4));
 }
 
 void fc_flash(byte f)
@@ -322,26 +320,42 @@ himemPtr fc_allocPalMem(word size)
     return 0;
 }
 
-char asciiToPetscii(byte c)
+// ASCII to VIC screen code, for the lower case character set this library
+// switches to in fc_init.
+//
+// **This used to be a PETSCII to screen code map called asciiToPetscii**, and
+// it was fed PETSCII because cc65 translated string literals on the way into
+// the object file: 'a' in the source became $41, and $41 - 64 is screen code 1,
+// which is a lower case a. Calypsi leaves literals as they are written, so the
+// same function was handed $61, returned screen code 65, and drew an upper
+// case A -- every string in the game came out with its case inverted.
+//
+// In the lower case character set the codes are: 0 is @, 1-26 are a-z, 27-31
+// are the four brackets and the left arrow, 32-63 are punctuation and digits
+// unchanged from ASCII, and 65-90 are A-Z, also unchanged.
+char asciiToScreencode(byte c)
 {
-    // TODO: could be made much faster with translation table
     if (c == '_')
     {
-        return 100;
+        return 100; // the underline glyph, not screen code 31
     }
-    if (c >= 64 && c <= 95)
+    if (c >= 'a' && c <= 'z')
     {
-        return c - 64;
+        return c - 0x60; // 1-26
     }
-    if (c >= 96 && c < 192)
+    if (c == '@')
     {
-        return c - 32;
+        return 0;
     }
-    if (c >= 192)
+    if (c > 'Z' && c < 'a')
     {
-        return c - 128;
+        return c - 0x40; // [ \\ ] ^ _, at 27-31
     }
-    return c;
+    if (c >= 0xc0)
+    {
+        return c - 0x80;
+    }
+    return c; // digits, punctuation, space and A-Z are already screen codes
 }
 
 void adjustBorders(byte extraRows, byte extraColumns)
@@ -499,7 +513,6 @@ fciInfo *fc_loadFCI(char *filename, himemPtr address, himemPtr paletteAddress)
     static byte reservedSysPalette;
 
     FILE *fcifile;
-    byte *palette;
     word palsize;
     word imgsize;
     word bytesRead;
@@ -530,8 +543,6 @@ fciInfo *fc_loadFCI(char *filename, himemPtr address, himemPtr paletteAddress)
     reservedSysPalette = fciOptions & 2;
 
     palsize = (lastcolorIndex + 1) * 3;
-    palette = (byte *)malloc(palsize);
-    fread(palette, 3, lastcolorIndex + 1, fcifile);
 
     if (!paletteAddress)
     {
@@ -545,12 +556,36 @@ fciInfo *fc_loadFCI(char *filename, himemPtr address, himemPtr paletteAddress)
     {
         palAdr = paletteAddress;
     }
-    lcopy((long)palette, palAdr, palsize);
-    free(palette);
+
+    // **Streamed through fcbuf rather than into a malloc of its own.** A 255
+    // colour palette is 765 bytes in one piece, which was more heap than the
+    // whole of the rest of the program wanted put together -- and under cc65,
+    // where the heap was whatever RAM was left, nobody had to notice. It is
+    // read here in FCBUFSIZE pieces and DMAd up as it arrives.
+    {
+        word remaining = palsize;
+        himemPtr at = palAdr;
+        while (remaining)
+        {
+            word chunk = (remaining > FCBUFSIZE) ? FCBUFSIZE : remaining;
+            if (fread(fcbuf, 1, chunk, fcifile) != chunk)
+            {
+                fc_fatal("short palette in %s", filename);
+            }
+            lcopy((long)fcbuf, at, chunk);
+            at += chunk;
+            remaining -= chunk;
+        }
+    }
     imgsize = numColumns * numRows * 64;
 
     fread(fcbuf, 1, 3, fcifile);
-    if (0 != memcmp(fcbuf, "img", 3))
+    // "IMG", not "img": png2fci writes the marker in upper case ASCII. This
+    // read it as "img" and matched, because cc65 compiled every string literal
+    // into PETSCII, where lower case ASCII letters become the codes $41-$5A --
+    // the same bytes upper case ASCII uses. Calypsi compiles literals as
+    // written, so the case here has to be the case in the file.
+    if (0 != memcmp(fcbuf, "IMG", 3))
     {
         fc_fatal("image marker not found in %s", filename);
     }
@@ -770,7 +805,7 @@ void fc_putc(char c)
         return;
     }
 
-    out = asciiToPetscii(c);
+    out = asciiToScreencode(c);
 
     fc_plotPetsciiChar(gCurrentWin->xc + gCurrentWin->x0, gCurrentWin->yc + gCurrentWin->y0, out,
                        gCurrentWin->textcolor, gCurrentWin->extAttributes);
@@ -1094,38 +1129,20 @@ void fc_vlinexy(byte x, byte y, byte height, byte lineChar)
 }
 
 
-// since cc65 doesn't allow 4510 opcodes I have
-// written the assembler in acme, made a hexdump and
-// stored it here
-unsigned char assembler[] = {
-    0xa9, 0x00,       // lda #$00
-    0xaa,             // tax
-    0xa8,             // tay
-    0x4b,             // taz
-    0x5c,             // map
-    0xa9, 0x36,       // lda #$36 (no basic)
-    0x85, 0x01,       // sta $01
-    0xa9, 0x47,       // lda #$47
-    0x8d, 0x2f, 0xd0, // sta $d02f
-    0xa9, 0x53,       // lda #$53
-    0x8d, 0x2f, 0xd0, // sta $d02f
-    0xea,             // eom
-    0xa9, 0x70,       // lda #$70
-    0x8d, 0x40, 0xd6, // sta $d640
-    0xea,             // nop
-    0x60              // rts
-};
+// Flattens the memory map so that $20000-$5FFFF is writable RAM. In
+// mega65-libc-modified/src/fcio_asm.s, where it replaced an array of bytes
+// hand-assembled in ACME because cc65 could not emit 45GS02 opcodes.
+extern void fc_bank_out_rom(void);
 
 void fc_setUniqueTileMode()
 {
     if(uniqueTileMode == 0) {
         uniqueTileMode = 1;
-        // bank out the C64/C65 ROM, freeing $2xxxx and $3xxxx.
-        // But, assuming that the program is started from C64
-        // mode, we still need the kernal, so avoid writing on
-        // 2e000 - 2ffff. 
-        // See the MEGA65 book, page F-11
-        asm("jsr %v", assembler);
+        // Bank out the ROM, freeing $2xxxx and $3xxxx. The C64 KERNAL at
+        // $2E000-$2FFFF stays mapped and is what the machine runs on
+        // afterwards, so fc_clearUniqueTiles below steps around it.
+        // See the MEGA65 book, page F-11.
+        fc_bank_out_rom();
         // clear the new memory, but keep the C64 kernal
         fc_clearUniqueTiles();
     }
@@ -1248,7 +1265,7 @@ void fc_rrw_puts(byte x, byte y, byte color, const char *s)
 
     while (*current)
     {
-        out = asciiToPetscii(*current++);
+        out = asciiToScreencode(*current++);
         lpoke(gFcioConfig->screenBase + adr, out);
         lpoke(gFcioConfig->screenBase + adr + 1, 0);
         lpoke(gFcioConfig->colorBase + adr + 1, extcolor);
