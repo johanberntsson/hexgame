@@ -49,6 +49,7 @@ BUILD    = build
 SRCS     = src/hexgame.c \
            src/hexboard.c \
            src/hexgame_ai.c \
+           src/input.c \
            mega65-libc-modified/src/fcio.c \
            mega65-libc-modified/src/memory.c
 ASRCS    = src/music_irq.s mega65-libc-modified/src/fcio_asm.s

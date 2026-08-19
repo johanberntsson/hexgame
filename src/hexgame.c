@@ -24,6 +24,7 @@
 
 #include "hexboard.h"
 #include "hexgame_ai.h"
+#include "input.h"
 
 extern unsigned int loadExt(char *filename, himemPtr addr, byte skipCBMAddressBytes); // from fcio.c
 
@@ -54,17 +55,6 @@ void music_install(void);
 // add a song or not?
 #define ENABLE_MUSIC
 #define ENABLE_SAMPLES
-
-// Keyboard input values
-#define KEY_F1 241
-#define KEY_F2 242
-#define KEY_UP 145
-#define KEY_ESC 27
-#define KEY_DOWN 17
-#define KEY_LEFT 157
-#define KEY_RIGHT 29
-#define KEY_ENTER 13
-#define KEY_SPACE 32
 
 // global options. option_difficulty belongs to the AI and lives in
 // hexgame_ai.c; the values it takes are in hexgame_ai.h.
@@ -203,8 +193,9 @@ void draw_board(byte x0, byte y0) {
                     fc_displayTile(tiles, xx, yy, 6, 0, 6, 7, 1);
                 if(board.tile[x][y] & HEX_BLACK)
                     fc_displayTile(tiles, xx, yy, 12, 0, 6, 7, 1);
-                if(board.tile[x][y] & HEX_CURSOR)
-                    fc_displayTile(tiles, xx, yy, 18, 0, 6, 7, 1);
+                // The fourth tile in the sheet is the old drawn cursor. It is
+                // sprite 0 now (see player_turn), so nothing sets HEX_CURSOR
+                // and nothing draws it.
             }
         }
     }
@@ -225,7 +216,8 @@ void show_win_screen() {
     }
     fc_center(0, 25, 80, "Press any key");
     fc_revers(false);
-    fc_getkey();
+    POKE(0xD610U, 0);         // drop the key or click that ended the game
+    while(input_poll() == 0); // the mouse button counts as a key here too
 }
 
 void update_options(byte *key) {
@@ -258,36 +250,42 @@ void update_options(byte *key) {
     }
 }
 
+// **The cursor is a hardware sprite, not a hexagon.** It used to be a fourth
+// tile drawn over the board (HEX_CURSOR), which meant it could only ever be
+// on a hexagon, that two hexagons had to be redrawn every time it moved, and
+// that the arrow jumped a whole hexagon at a time -- no use at all for a
+// mouse. Sprite 0 goes wherever the mouse puts it, and snaps to the middle of
+// a hexagon when a key or the joystick moves it. See src/input.c.
 byte player_turn() {
     // add a stone, return true if this was a winning move
     byte key;
-    byte cx, cy = 255; // cursor pos, 255 forces cx/cy/tile init
+    byte kx, ky;       // where the cursor was before a key moved it
     byte px = board.white_last_x;
     byte py = board.white_last_y;
 
-    // display cursor and get new stone location
+    // The arrow starts on the hexagon the player left it on rather than
+    // wherever the last turn's last movement happened to end.
+    input_set_cell(px, py);
+    input_show_pointer(true);
+
     key = 0;
     while(key != KEY_ENTER) {
-        if(px != cx || py != cy) {
-            if(cx < board.size) {
-                board.redraw[cx][cy] = true;
-                board.tile[cx][cy] &= 255 - HEX_CURSOR;
-            }
-            board.redraw[px][py] = true;
-            board.tile[px][py] |= HEX_CURSOR;
-            draw_board(1, 1);
-            cx = px;
-            cy = py;
-        }
-        key = fc_getkey();
+        // The loop no longer blocks on a key: the mouse has to be read even
+        // while nothing is being pressed, or the arrow would only move when
+        // the player also happened to touch the keyboard.
+        key = input_poll();
+        input_moved(&px, &py); // the mouse may have picked a hexagon of its own
         if(key) update_options(&key); // check if a global option command
         if(key == KEY_SPACE) key = KEY_ENTER;
+        kx = px;
+        ky = py;
         switch(key) {
             case KEY_ESC:
+                input_show_pointer(false);
                 return ABORT;
             case KEY_ENTER:
                 // only allowed if this hexagon is empty
-                if(board.tile[cx][cy] != HEX_CURSOR) {
+                if(board.tile[px][py] != HEX_EMPTY) {
 #ifdef ENABLE_SAMPLES
                 if(option_music == OPTION_MUSIC_OFF) play_sample(0, DOWNLEAD_ADDRESS, DOWNLEAD_LENGTH);
 #endif
@@ -295,25 +293,29 @@ byte player_turn() {
                 }
                 break;
             case KEY_LEFT:
-                if(cx > 0) --px;
+                if(px > 0) --px;
                 break;
             case KEY_RIGHT:
-                px = cx + 1;
-                if(px >= board.size) --px;
+                if(px < board.size_minus_1) ++px;
                 break;
             case KEY_UP:
-                if(cy > 0) --py;
+                if(py > 0) --py;
                 break;
             case KEY_DOWN:
-                py = cy + 1;
-                if(py >= board.size) --py;
+                if(py < board.size_minus_1) ++py;
         }
+        // A key or a joystick step moved the cursor, so snap the arrow onto
+        // the hexagon it landed on -- and take the mouse pointer with it, or
+        // the next twitch of the mouse would throw the cursor back to
+        // wherever the pointer had been left.
+        if(px != kx || py != ky) input_set_cell(px, py);
     }
+    input_show_pointer(false);
 
     // put a white stone here
-    board.tile[px][py] = HEX_WHITE | HEX_CURSOR;
+    board.tile[px][py] = HEX_WHITE;
     board.redraw[px][py] = true;
-    draw_board(1, 1);
+    draw_board(BOARD_X0, BOARD_Y0);
 
 #ifdef ENABLE_SAMPLES
     if(option_music == OPTION_MUSIC_OFF) play_sample(0, MARBA_ADDRESS, MARBA_LENGTH);
@@ -351,6 +353,9 @@ void hide_progress_bar() {
 // The AI calls this from inside its search so that a key pressed during a long
 // think is acted on rather than dropped. See hexgame_ai.h.
 void ai_poll_input(void) {
+    // Keyboard only: a click while the computer is thinking is not a move,
+    // and reading the mouse from inside the search would only put a pointer
+    // somewhere the player cannot see it.
     byte key = PEEK(0xD610U);
     if(key) {
         POKE(0xD610U, 0);
@@ -376,9 +381,8 @@ byte  delay(byte sec) {
                 raster_temp=PEEK(0xD052);
                 while(PEEK(0xD052)==raster_temp) continue;
             }
-            c = PEEK(0xD610U);
+            c = input_poll();
             if(c) {
-                POKE(0xD610U, 0); // clear key pressed buffer
                 update_options(&c);
                 show_options();
                 if(c && c != KEY_ESC) return c;
@@ -456,7 +460,9 @@ void show_title_screen() {
 
         if(show_title_text("You play white, the computer is black", TEXT_DELAY)) return;
 
-        if(show_title_text("Select an empty tile with the cursor keys and enter", TEXT_DELAY)) return;
+        if(show_title_text("Pick an empty tile with the mouse, a joystick or the keys", TEXT_DELAY)) return;
+
+        if(show_title_text("and place your stone with the button, fire or enter", TEXT_DELAY)) return;
 
         if(show_title_text("Select difficulty level with F2", TEXT_DELAY)) return;
 
@@ -471,7 +477,7 @@ void show_game_screen() {
     fc_bgcolor(FC_COLOR_GREY1);
     fc_bordercolor(FC_COLOR_BLACK);
     init_game(MAX_SIZE);
-    draw_board(1, 1);
+    draw_board(BOARD_X0, BOARD_Y0);
 }
 
 int main(void) {
@@ -484,8 +490,8 @@ int main(void) {
     load_resources();
     enter_tile_mode();
 
-    // clear keyboard buffer
-    POKE(0xD610U, 0);
+    // clears the keyboard buffer and seeds the mouse counters
+    input_init();
 
     for(;;) {
         show_title_screen();

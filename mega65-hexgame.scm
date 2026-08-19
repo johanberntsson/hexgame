@@ -16,6 +16,15 @@
 ;;; what the tool chain would otherwise hand out; see the sidreloc invocation
 ;;; in assets/music/Makefile. The two ranges have to be changed together.
 ;;;
+;;; **`zdata` is in the free RAM below the program, not in it.** The whole of
+;;; the program's BSS -- about 1.5 KB -- lives at $1600-$1EFF, which the stock
+;;; rules already declare as free space (it is where `zpsave` would go, and
+;;; this program has none). It had to move: the 28 KB at $2001 was 98.9% full
+;;; and there was no room left to add anything. BSS is not in the PRG, so
+;;; nothing has to load it, and `load_resources()` does its disk I/O with it
+;;; live -- the C65 KERNAL leaves that span alone. `cstack` and `heap` stay in
+;;; the program area, where the linker puts them after the code.
+;;;
 ;;; **$A000 and up are left alone.** $A000-$BFFF is the BASIC ROM, $C000-$CFFF
 ;;; the C65's interface ROM and $E000 the KERNAL. The game reads every one of
 ;;; its resources through the KERNAL before it touches the memory map at all
@@ -29,5 +38,5 @@
     (memory zeroPage (address (#x2 . #x7b)) (type ram) (qualifier zpage)
             (section (registers #x2)))
     (memory stackPage (address (#x100 . #x1ff)) (type ram))
-    (memory freeSpace (address (#x1600 . #x1eff)) (section zpsave))
+    (memory freeSpace (address (#x1600 . #x1eff)) (section zpsave zdata))
     ))

@@ -3,6 +3,7 @@
 _Written by Johan Berntsson_
 
 - 10 January 2022: started development
+- 19 August 2026: new version with better AI and mouse support, build with Calypsi C
 
 # Introduction
 
@@ -184,3 +185,57 @@ against twenty board fills for each of up to 81 candidates.
 `src/hexgame_ai.c` with the host compiler and plays the AI against itself a few
 hundred times a second, which is why the AI's board and rules are a separate
 file from the game's screen handling now.
+
+# Mouse, joystick and the arrow (2026)
+
+The cursor used to be a fourth tile in `hexgame.fci` -- an arrow drawn inside a
+hexagon, blitted over the board and moved a whole hexagon at a time by the
+cursor keys. That is the one shape a mouse cannot have. It is a hardware
+sprite now, and the mouse, a joystick and the keyboard all move the same one.
+
+The mouse is a 1351 read straight from the MEGA65's own pot registers,
+`$D620`/`$D621`, which need none of the SID and CIA multiplexing that reading
+a mouse on a C64 does: the pot is a six bit counter that wraps, so a reading
+only means anything as the signed difference from the last one. The button is
+the fire line of *either* control port, because which physical port those pot
+registers belong to is not the same in xemu as it is on the machine. All of
+that, and the reason `$DC00` has to be read with the keyboard columns
+deselected -- it is the column select as much as it is control port 2 -- comes
+from `asm/mouse.asm` in my Ozmoo z6 branch, which is the version of this code
+that has run on a real MEGA65. A joystick is the alternative for anyone
+without a mouse, and moves the arrow one hexagon per step like a cursor key.
+
+Two things about it were decided by looking at screenshots rather than at a
+manual:
+
+**A sprite pixel is not square here.** The screen is H640 and V400, so one
+sprite unit is two screen pixels each way -- a monochrome sprite is 48x42 with
+square pixels, but a *multicolour* one is four wide and two tall, and the
+first attempt at a diagonal arrow came out looking like a flag. So the arrow
+is monochrome, and it gets its black outline from a second monochrome sprite
+of the same shape grown by a pixel, sitting behind it. Sprite 0 is the body,
+sprite 1 the outline, and the lower numbered sprite is in front.
+
+**The sprite pointers had to move.** The VIC-IV reads them from the screen
+base plus `$3F8`, and the screen here is 16 bit full colour characters at
+`$12000`, so that address is a character on the board. `SPRPTRADR`
+(`$D06C`-`$D06E`) relocates the list, and bit 7 of its top byte asks for 16
+bit pointers -- each one an address divided by 64, which is why the two
+shapes are copied into a 64 byte aligned window of a plain C array.
+
+The pointer itself is not a position on the screen. It is *which hexagon, and
+how far into it*: four bytes, two of them signed. A step to the next hexagon
+is a subtraction rather than a division, which is not a detail -- the first
+version tracked a 16 bit screen pixel, and the divisions and multiplications
+that needed cost 1.3 KB in a program area that had about 300 bytes left.
+Rounding to a row and then to a hexagon within it makes the region that picks
+a hexagon a rectangle rather than the hexagon itself, so its four corners
+belong to the neighbour they touch; nobody aims there.
+
+That still did not fit, and what made room was moving `zdata` -- all 1.5 KB of
+the program's BSS -- into the free RAM at `$1600-$1EFF` that the Calypsi
+linker rules already declare and that this program was not using. It is below
+the program, so it is not in the PRG and nothing has to load it; the disk
+loading in `load_resources()` runs with it live and the C65 KERNAL has left it
+alone. The program area went from 98.9% full to 97.4% with the whole feature
+in it.
