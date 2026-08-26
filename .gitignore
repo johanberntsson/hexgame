@@ -6,10 +6,6 @@ build/
 # The AI harness binary.
 tools/hexsim/hexsim
 
-# Music intermediates. assets/music/Music.sid is the source and res/music.prg
-# is the result; what sidreloc and psid64 leave between them is not.
-assets/music/*.prg
-
 # Prerequisites
 *.d
 

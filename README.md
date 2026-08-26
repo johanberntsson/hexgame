@@ -5,11 +5,11 @@ The Hex game for the MEGA65 computer, with an AI using Monte Carlo simulation an
 
 # Getting started
 
-**It is one file.** `disc/hexgame.prg` is the whole game -- program, tune,
+**It is one file.** `release/hexgame.prg` is the whole game -- program, tune,
 sound effects and tile sheet -- and it needs no disk. Put it on the SD card of
 a real MEGA65 and run it, or:
 
-    > xemu-xmega65 -prg disc/hexgame.prg
+    > xemu-xmega65 -prg release/hexgame.prg
 
 Press **ESC** on the title screen to quit back to BASIC.
 
@@ -32,7 +32,7 @@ which needs `cc6502`, `as6502` and `ln6502` on your `PATH`. You will also need:
 make            # build build/hexgame.prg
 make run        # build it and boot it in the emulator
 make game       # boot the game on its own, without the unpacker in front
-make release    # copy the built file over disc/hexgame.prg, the one checked in
+make release    # copy the built file over release/hexgame.prg, the one checked in
 make clean
 ```
 

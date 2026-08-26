@@ -460,7 +460,7 @@ void show_title_screen() {
     fc_textcolor(FC_COLOR_GREEN);
     fc_displayTile(tiles, 19, 0, 0, 8, 40, 17, 0);
     fc_textcolor(FC_COLOR_YELLOW);
-    fc_center(0, 19, 80, "Written in 2026 by Johan Berntsson");
+    fc_center(0, 19, 80, "Release 2, 2026 by Johan Berntsson");
     fc_textcolor(FC_COLOR_GREEN);
     fc_putsxy(20, 49, "Music (F1): ");
     fc_putsxy(40, 49, "Difficulty (F2): ");
@@ -509,7 +509,7 @@ void show_title_screen() {
 
         if(show_title_text("Select difficulty level with F2", TEXT_DELAY)) return;
 
-        if(show_title_text("But even HARD isn't that difficult. Sorry", TEXT_DELAY)) return;
+        // if(show_title_text("But even HARD isn't that difficult. Sorry", TEXT_DELAY)) return;
 
         if(show_title_text("Now press any key to start", TEXT_DELAY*2)) return;
     }
