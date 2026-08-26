@@ -289,6 +289,45 @@ In `tools/mkprg.py`. What made it work:
   `fcio.c` and the program lost about 2.7 KB.
 
 
+# Quitting (Aug 2026)
+
+ESC in a turn already meant "give up, back to the title screen". ESC on the
+title screen did nothing at all -- `delay()` had a special case throwing it
+away -- and it now quits to BASIC.
+
+Which turned out not to be a one-liner, because **this game runs on top of the
+ROM rather than under it**. `enter_tile_mode()` takes $20000-$5FFFF for
+per-character tile data, and $20000-$3FFFF is the 128 KB ROM image the machine
+booted from; `fc_clearUniqueTiles()` wipes most of it. By the time the title
+screen is up there is no BASIC in the machine to go back to, and taking the
+KERNAL's reset entry lands in wiped memory and fills the screen with garbage --
+which is exactly what the first attempt did.
+
+There was no way round it by clearing less. A cell's tile address is fixed by
+where the cell sits on the screen, the board reaches past $2A000, and the run
+already ends at $5F000 with 4 KB spare, so BASIC's 8 KB cannot be stepped over
+the way the DOS and the KERNAL already are. Nor can a program ask the
+Hypervisor to load the ROM again: the traps a write can reach are $D640-$D67F
+and reset is $40, which is outside the range and belongs to the reset button.
+
+So the ROM is **saved before it is eaten**: 128 KB up to attic RAM in
+`enter_tile_mode`, four DMA jobs, and copied back on the way out. There are
+megabytes of attic going spare and the copy costs a few milliseconds at boot.
+The write protection was already lifted -- `fc_bank_out_rom` asks the
+Hypervisor for that at startup so the tile area is writable at all -- so
+putting the ROM back needs nothing special.
+
+The other half is the screen. A reset writes the VIC-II registers and, with the
+hot registers on, those recompute most of the VIC-IV side; but not CHARPTR, the
+row stride or the character count, which survive a reset on real hardware and
+would leave BASIC drawn in the game's font at twice the stride. That is
+`~/commodore/ozmoo-z6`'s finding, confirmed on a machine, and its
+`leave_fcm_mode` list is what `quit_to_basic()` does -- plus the colour RAM
+offset this game moves and the two sprites the pointer owns. **xemu restores
+those registers itself**, so the clean BASIC screen it gives is not evidence
+that the hardware will do the same; the explicit restore is the thing to trust,
+and the thing to suspect if a real MEGA65 disagrees.
+
 # Memory problems/fast IRQ loader
 
 There is a fast loader which could be used to read the resouces in the mega65-tools repository: [fastload_demo.a](https://github.com/MEGA65/mega65-tools/blob/master/src/utilities/fastload_demo.asm)

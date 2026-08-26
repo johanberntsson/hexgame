@@ -11,6 +11,8 @@ a real MEGA65 and run it, or:
 
     > xemu-xmega65 -prg disc/hexgame.prg
 
+Press **ESC** on the title screen to quit back to BASIC.
+
 It used to be a D81 with an `autoboot.c65` and a `hexgame.fci` on it. The two
 of them are 94 KB, which does not fit in a 6502's address space at once;
 [exomizer](https://bitbucket.org/magli143/exomizer/wiki/Home) makes them 39 KB,

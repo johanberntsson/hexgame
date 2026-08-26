@@ -103,6 +103,92 @@ void load_resources() {
 
 }
 
+// **The ROM is put somewhere safe before the game eats it.** enter_tile_mode()
+// takes $20000-$5FFFF for per-character tile data and fc_clearUniqueTiles()
+// wipes it -- and $20000-$3FFFF is the 128 KB ROM image the machine booted
+// from. By the time the title screen is up, C64 BASIC at $2A000 and most of
+// the C65 ROM around it are zeroes, so there is nothing left to quit *into*:
+// the KERNAL's reset entry runs and lands in wiped memory.
+//
+// It cannot be worked around by clearing less. A cell's tile address is fixed
+// by where the cell is on the screen -- see fc_displayTile -- and the board
+// alone reaches past $2A000, so BASIC's 8 KB cannot simply be stepped over the
+// way the DOS and the KERNAL are. And a program cannot ask the hypervisor to
+// load the ROM again either: the traps a write can reach are $D640-$D67F, and
+// reset is not one of them.
+//
+// So the 128 KB is copied to attic RAM first, where there are megabytes going
+// spare, and copied back on the way out. Four DMA jobs each way, because
+// lcopy counts in 16 bits.
+#define ROM_IMAGE  0x20000l     // the ROM the machine booted from
+#define ROM_SAVE   0x8200000l   // clear of the tile sheet and the FCI source
+#define ROM_CHUNKS 4
+#define ROM_CHUNK  32768
+
+static void save_rom(void) {
+    byte i;
+    for(i = 0; i < ROM_CHUNKS; i++)
+        lcopy(ROM_IMAGE + (long)ROM_CHUNK * i,
+              ROM_SAVE + (long)ROM_CHUNK * i, ROM_CHUNK);
+}
+
+// **Quitting means resetting the machine**, because the game has been running
+// on top of the ROM rather than under it: the way out is to put the ROM back
+// and then take the KERNAL's reset entry, which brings the machine up again
+// from scratch. fc_bank_out_rom() asked the Hypervisor to lift the write
+// protection from this area at startup and nothing has put it back, which is
+// what makes the copy below possible at all.
+//
+// The VIC-IV is put back by hand first. A reset writes the VIC-II registers,
+// and with the hot registers enabled those recompute most of the VIC-IV side
+// -- but only most. `~/commodore/ozmoo-z6` found on a **real MEGA65** that
+// CHARPTR, the row stride and the character count survive a reset, so a screen
+// left in 16 bit full colour mode comes back up in the game's font at twice
+// the row stride and BASIC is unreadable. **xemu puts them back itself, so a
+// clean screen there is not evidence**: the list below is that project's
+// `leave_fcm_mode`, which is confirmed on the machine, plus the colour RAM
+// offset this game moves and the two sprites it owns.
+#define KERNAL_RESET 0xe4b8     // the C65 KERNAL's reset entry
+
+void quit_to_basic(void) {
+    byte i;
+
+    // The tune is about to stop existing along with the interrupt that drives
+    // it, so take the SID down rather than leave a note ringing over the boot.
+    // 25 registers, not the 24 the F1 handler writes: the master volume is the
+    // one that matters here.
+    __disable_interrupts();
+    for(i = 0; i < 25; i++) POKE(0xd400u + i, 0);
+
+    // The ROM, back where the reset below expects to find it.
+    for(i = 0; i < ROM_CHUNKS; i++)
+        lcopy(ROM_SAVE + (long)ROM_CHUNK * i,
+              ROM_IMAGE + (long)ROM_CHUNK * i, ROM_CHUNK);
+
+    mega65_io_enable();
+    POKE(0xd05du, PEEK(0xd05du) | 0x80);  // hot registers on, so the reset's
+    POKE(0xd031u, 0xe0);                  // own VIC-II writes recompute the
+    POKE(0xd016u, 0xc9);                  // VIC-IV side from these two
+
+    mega65_io_enable();
+    POKE(0xd054u, 0x40);        // no 16 bit characters and no full colour
+    POKE(0xd015u, 0);           // the arrow and its outline off
+    POKE(0xd064u, 0);           // colour RAM offset, back where BASIC has it
+    POKE(0xd065u, 0);
+    POKE(0xd058u, 80);          // row stride: one byte a cell, not two
+    POKE(0xd059u, 0);
+    POKE(0xd05eu, 80);          // cells a row
+    POKE(0xd068u, 0x00);        // CHARPTR $001000, or every glyph BASIC
+    POKE(0xd069u, 0x10);        // prints comes out of the game's tile data
+    POKE(0xd06au, 0x00);
+    POKE(0xd06cu, 0xf8);        // SPRPTRADR $000ff8, and 8 bit pointers --
+    POKE(0xd06du, 0x0f);        // input.c moved the list and made it 16 bit
+    POKE(0xd06eu, 0x00);
+
+    ((void (*)(void))KERNAL_RESET)();
+    for(i = 0;; i++);           // not reached
+}
+
 // Hand the machine over to the game: $20000-$5FFFF becomes writable RAM for
 // the per-character tile data, and the interrupt becomes ours.
 //
@@ -111,6 +197,9 @@ void load_resources() {
 // between the two calls lands in whatever is at that address now.
 void enter_tile_mode() {
     __disable_interrupts();
+
+    // Before anything is allowed to overwrite it -- see quit_to_basic().
+    save_rom();
 
     // this makes $20000 - $5ffff for character data (so tiles can be modified)
     fc_setUniqueTileMode();
@@ -334,7 +423,12 @@ byte  delay(byte sec) {
             if(c) {
                 update_options(&c);
                 show_options();
-                if(c && c != KEY_ESC) return c;
+                // **ESC on the title screen leaves the game.** In a turn it
+                // means "give up and go back to the title", which is why it
+                // was the one key this loop threw away; here there is nothing
+                // left to back out to, so it quits.
+                if(c == KEY_ESC) quit_to_basic();
+                if(c) return c;
             }
         }
     }

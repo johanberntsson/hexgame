@@ -99,6 +99,8 @@ music_init:
 
                 lda #$0f
                 sta SID+$18             ; volume, filter off
+                lda #SFX_NONE           ; the SID has just been wiped, so any
+                sta sfx_owner           ; effect playing over it is gone too
                 lda #1
                 sta tick                ; first call lands on row 0
                 rts
@@ -197,6 +199,8 @@ next_row:
 ;  envelope to zero now so the attack is clean and always in phase.
 ; ---------------------------------------------------------------------------
 hard_restart:
+                cpx sfx_owner           ; lent to a sound effect: see sfx.asm
+                beq .done
                 jsr set_ptr
                 ldy #0
                 lda (ZP_PTR),y
@@ -240,6 +244,8 @@ do_row:
 .off            lda v_wave,x
                 and #$fe
                 sta v_wave,x
+                cpx sfx_owner
+                beq .adv
                 ldy sid_ofs,x
                 sta SID+4,y
 
@@ -293,7 +299,9 @@ note_on:
                 lda freq_hi,y
                 sta tmp4
 
-                ldy sid_ofs,x
+                cpx sfx_owner           ; the voice state is kept up to
+                beq .nosid              ; date either way, so the tune comes
+                ldy sid_ofs,x           ; back in time and in tune
                 lda tmp3
                 sta SID+0,y
                 lda tmp4
@@ -308,7 +316,7 @@ note_on:
                 sta SID+6,y             ; sustain / release
                 lda v_wave,x
                 sta SID+4,y             ; waveform + gate on
-                rts
+.nosid          rts
 
 
 ; ---------------------------------------------------------------------------
@@ -322,6 +330,8 @@ do_effects:
                 bne .wdone
                 lda v_wave2,x
                 sta v_wave,x
+                cpx sfx_owner
+                beq .wdone
                 ldy sid_ofs,x
                 sta SID+4,y
 
@@ -448,7 +458,9 @@ do_effects:
                 sbc v_pwd,x
                 sta v_pwd,x
 
-.out            ldy sid_ofs,x
+.out            cpx sfx_owner
+                beq .nopitch
+                ldy sid_ofs,x
                 lda tmp1
                 sta SID+0,y
                 lda tmp2
@@ -458,7 +470,7 @@ do_effects:
                 lda v_pw_h,x
                 and #$0f
                 sta SID+3,y
-                rts
+.nopitch        rts
 
 
 ; ---------------------------------------------------------------------------
@@ -498,6 +510,12 @@ sid_ofs         !byte 0, 7, 14
 ;  the tune: instruments, patterns and order lists
 ; ---------------------------------------------------------------------------
                 !source "music.asm"
+
+
+; ---------------------------------------------------------------------------
+;  the sound effects, which borrow one of the three voices above
+; ---------------------------------------------------------------------------
+                !source "sfx.asm"
 
 
 ; ---------------------------------------------------------------------------
