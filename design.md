@@ -4,6 +4,7 @@ _Written by Johan Berntsson_
 
 - 10 January 2022: started development
 - 19 August 2026: new version with better AI and mouse support, build with Calypsi C
+- 26 August 2026: new sound, rewritten as an PRG file with exomzier
 
 # Introduction
 
@@ -185,6 +186,107 @@ Calypsi at the same origin, pins the linker's zero page to the addresses the
 ACME source picked, and compares the two images byte for byte. Both tools and
 the argument for them came from `~/commodore/SearchAndRescue`, which runs the
 same player under a different song.
+
+
+# One file, and no disk
+
+**August 2026.** The game shipped as a D81 with two files on it: `autoboot.c65`,
+which the MEGA65 ROM boots by name, and `hexgame.fci`, the 64 KB tile sheet it
+read at startup. That is a reasonable thing for a MEGA65 program to be and it is
+not what an 8 bit game usually was -- a game was a file, you loaded it, it ran.
+
+The two of them are 94 KB. A 6502 has 64 KB of address space, so the reason the
+disk existed at all is that the tile sheet could not be in the program: it had
+to be read in and DMAd up to attic RAM at run time. Compressed with exomizer --
+and with the file I/O taken out of the program, which was worth 2.7 KB on its
+own -- the pair comes to 35 KB of stream, and *that* fits, with most of the map
+left over to unpack into. So `hexgame.prg` is now the whole thing: 41 KB, one
+file, no disk, no `c1541` in the build.
+
+## What exomizer will and will not do
+
+Worth writing down first, because it is the constraint the whole design is
+shaped around: **exomizer's `sfx` and `mem` sub-commands live inside a 16 bit
+address space.** They cannot decrunch to `$40000`, let alone to attic RAM at
+`$8000000`, because a 6502 decruncher writes through a 16 bit pointer and that
+is all there is. So the two halves of this file are two different problems and
+the usual advice is to treat them differently:
+
+- **`game.prg`, auto-running code** is what `exomizer sfx` is for. It wraps the
+  program in its own BASIC stub and decruncher and jumps to an entry point.
+  `exomizer sfx sys game.prg` reads the SYS out of the BASIC line, though on a
+  C65 the line is at `$2001` rather than `$0801` and the safer form is to give
+  the address outright -- `exomizer sfx 0x200e ...`. `-n` turns off the
+  decrunch flicker, which looks wrong on a MEGA65.
+- **`hexgame.fci`, a passive blob**, is what `exomizer mem` is for:
+  `exomizer mem hexgame.fci@0x9000` picks a load address for the compressed
+  bytes that overlaps the destination safely and decrunches backwards in place.
+  Then you move it where it really goes, and since `$8000000` is not a CPU
+  address that means DMA -- `lcopy(0x9000, 0x8000000, len)` out of mega65-libc,
+  which builds an F018 job list and is the standard way across the boundary.
+
+**Neither of those is what this ended up doing**, and the reason is the size of
+the tile sheet. `mem` decrunches a whole blob to one place, and the blob is
+64000 bytes: there is no 64000 byte hole in the map to stage it in, so it would
+have had to be split into a dozen separately crunched chunks, each decrunched to
+a scratch buffer and DMAd up. That works and it is what the notes above assume.
+It is also a lot of moving parts, and it costs compression, because every chunk
+restarts the encoder.
+
+The streaming decruncher removes the whole problem -- see below. What survives
+from the reconnaissance is `exomizer raw`, which is neither `sfx` nor `mem`: a
+bare stream with no load address, no decruncher stapled to the front and no
+opinion about where the bytes go. Two of those and one stage 1 that knows what
+to do with both is a smaller thing than two different mechanisms.
+
+The other road not taken was **`MAP`**: bank a window of chip RAM into the
+CPU's address space and let the decruncher write to `$8000` believing it is
+ordinary memory, with no DMA copy at all. It is a real technique and it is
+fiddlier than it sounds -- you have to unmap afterwards and be careful about
+zero page and the stack while the window is open -- but the thing that ruled it
+out here is simpler than any of that: `MAP`'s offset reaches the first megabyte,
+and attic RAM starts at `$8000000`. It could not have addressed this resource
+at all.
+
+## The shape of it
+
+In `tools/mkprg.py`. What made it work:
+
+- **the streaming decruncher.** Exomizer ships a C implementation as well as
+  the assembly one, and it is a *streaming* decruncher -- it hands back one byte
+  at a time out of a bounded back-reference window instead of filling a buffer.
+  That is the whole design: the tile sheet is decrunched a kilobyte at a time
+  and DMAd straight to attic RAM, so 64000 bytes never have to exist in the 64
+  KB map at all. Compiling exomizer's own C rather than porting its assembler
+  also meant not hand-translating a decompressor, which is the kind of code that
+  is either exactly right or quietly wrong.
+- **unpacking the game over its own compressed bytes.** The game decrunches to
+  $2001 while it is being read from $70D8, so the write pointer is chasing the
+  read pointer up the same memory. `mkprg.py` proves it cannot catch it, by
+  walking the stream and comparing the two at every byte -- 11184 bytes of
+  slack, printed on every build. Stage 1 itself sits at $B800, above everything
+  it writes, so it survives long enough to jump into what it unpacked.
+- **three things that were only true because the ROM was there.** This took
+  most of the afternoon and all three had the same shape: something had been
+  quietly relying on the C65 ROM, and booting from a stage 1 that banks it out
+  first took the floor away.
+  - stage 1's C stack was at $C122, and $C000-$CFFF is the interface ROM. `$01`
+    does not control that -- $D030 bit 5 does, and nothing was clearing it. The
+    first function call with a local variable in it had nowhere to put it and
+    the machine simply stopped.
+  - `fc_init` opened with a `puts` and two `BSOUT`s, tidying up a screen BASIC
+    had been using. With no initialised KERNAL behind them they hung the
+    machine on the first line of the program.
+  - and taking the `BSOUT(14)` out cost the lower case character set, because
+    that call was the only thing selecting it. Every capital letter came out as
+    a graphic. `fc_screenmode` sets $D018 bit 1 itself now.
+
+  None of the three is a bug in what was there before; all three are the cost
+  of a program that used to start inside a running ROM and now starts on a bare
+  machine.
+- **it also made the program smaller.** No files means no `fopen`, which means
+  no stdio: `loadExt`, `readExt` and two other file-taking functions came out of
+  `fcio.c` and the program lost about 2.7 KB.
 
 
 # Memory problems/fast IRQ loader

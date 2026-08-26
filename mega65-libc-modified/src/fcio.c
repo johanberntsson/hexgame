@@ -109,68 +109,21 @@ int gBottomBorder;
 bool csrflag; // cursor on/off
 bool autoCR;
 
-unsigned int readExt(FILE *inFile, himemPtr addr, byte skipCBMAddressBytes)
-{
+// **There is no file I/O in this program.** readExt, loadExt and
+// fc_loadReservedBitmap were here, and the game's resources now arrive in
+// memory before it starts -- see src/stage1.c. fc_loadFCI below takes the
+// address of an FCI image instead of the name of one.
 
-    unsigned int readBytes;
-    unsigned int overallRead;
-    unsigned long insertPos;
-
-    insertPos = addr;
-    overallRead = 0;
-
-    if (skipCBMAddressBytes)
-    {
-        fread(fcbuf, 1, 2, inFile);
-    }
-
-    do
-    {
-        readBytes = fread(fcbuf, 1, FCBUFSIZE, inFile);
-        if (readBytes)
-        {
-            overallRead += readBytes;
-            lcopy((long)fcbuf, insertPos, readBytes);
-            insertPos += readBytes;
-        }
-    } while (readBytes);
-
-    return overallRead;
-}
-
-unsigned int loadExt(char *filename, himemPtr addr, byte skipCBMAddressBytes)
-{
-
-    FILE *inFile;
-    word readBytes;
-
-    inFile = fopen(filename, "r");
-    if(inFile == NULL) return 0;
-    readBytes = readExt(inFile, addr, skipCBMAddressBytes);
-    fclose(inFile);
-
-    if (readBytes == 0)
-    {
-        fc_fatal("0 bytes from %s", filename);
-    }
-
-    return readBytes;
-}
-
-void fc_loadReservedBitmap(char *name)
-{
-    fc_loadFCI(name, gFcioConfig->reservedBitmapBase, gFcioConfig->reservedPaletteBase);
-    fc_resetPalette();
-}
-
-void fc_init(byte h640, byte v400, fcioConf *config, byte rows, byte rrw_size, char *reservedBitmapFile)
+void fc_init(byte h640, byte v400, fcioConf *config, byte rows, byte rrw_size)
 {
     mega65_io_enable();
 
-    puts("\n");       // cancel leftover quote mode from wrapper or whatever
-    cbm_k_bsout(14);  // lowercase
-    cbm_k_bsout(147); // clr
-
+    // **No KERNAL calls.** There were three here -- a puts to cancel leftover
+    // quote mode, and BSOUT for lowercase and clear -- and they were tidying
+    // up a screen BASIC had been using. Nothing has been using it now: stage 1
+    // banks the ROM out before the game starts, so $E000 is a C64 KERNAL this
+    // program never initialised, and BSOUT into it hangs the machine on the
+    // first line of fc_init. The screen this sets up below is its own.
     gFcioConfig = config ? config : &stdConfig;
 
     if ((PEEK(53359U) & 128) == 0)
@@ -195,10 +148,6 @@ void fc_init(byte h640, byte v400, fcioConf *config, byte rows, byte rrw_size, c
     fc_screenmode(h640, v400, rows, rrw_size);
     autoCR = true;
 
-    if (reservedBitmapFile)
-    {
-        fc_loadReservedBitmap(reservedBitmapFile);
-    }
     fc_textcolor(FC_COLOR_GREEN);
 }
 
@@ -257,11 +206,16 @@ void fc_fatal(const char *format, ...)
     va_start(args, format);
     vsprintf(buf, format, args);
     va_end(args);
-    fc_go8bit();
+    // On the game's own screen, not through the KERNAL: fc_go8bit and puts
+    // were here, and there is no KERNAL to put anything out through any more.
+    // fc_init has run by the time anything calls this -- it is the loader's
+    // error path -- so fc_puts has a screen to write to.
     fc_bordercolor(2);
     fc_bgcolor(0);
-    puts("## fatal error ##");
-    puts(buf);
+    fc_textcolor(FC_COLOR_WHITE);
+    fc_gotoxy(0, 0);
+    fc_puts("## fatal error ##");
+    fc_puts(buf);
     while (1)
         ;
 }
@@ -427,6 +381,15 @@ void fc_screenmode(byte h640, byte v400, byte rows, byte rrw_size)
     lfill_skip(gFcioConfig->screenBase, 32, gScreenSize, 2);
     lfill(gFcioConfig->colorBase, 0, gScreenSize * 2);
 
+    // **The lower case character set, which the KERNAL used to pick.**
+    // fc_init opened with BSOUT(14) and that is all that call ever did: set
+    // bit 1 of $D018, which with the hot registers still live is what moves
+    // the VIC-IV's character pointer to the second half of the character ROM.
+    // Without it every capital comes out as a graphic, which is a strange way
+    // to discover that a KERNAL call was load bearing. Bits 4-7 are the screen
+    // base and SCNPTR below sets that properly anyway.
+    POKE(53272u, PEEK(53272u) | 0x02);
+
     HOTREG &= 127; // disable hotreg
 
     if (extraRows > 0)
@@ -469,7 +432,6 @@ void fc_go8bit()
     HOTREG |= 0x80;   // enable hotreg
     VIC3CTRL &= 0x7f; // disable H640
     VIC3CTRL &= 0xf7; // disable V400
-    cbm_k_bsout(14);  // lowercase charset
     fc_setPalette(0, 0, 0, 0);
     fc_setPalette(1, 255, 255, 255);
     fc_setPalette(2, 255, 0, 0);
@@ -506,13 +468,17 @@ void fc_addGraphicsRect(byte x0, byte y0, byte width, byte height,
     }
 }
 
-fciInfo *fc_loadFCI(char *filename, himemPtr address, himemPtr paletteAddress)
+// **The image is at `src` in 28 bit memory, not in a file.** It is the same
+// bytes an .fci file holds and it is read in the same order; what has changed
+// is where they come from. tools/mkprg.py packs res/hexgame.fci into
+// hexgame.prg and src/stage1.c unpacks it to attic RAM before this runs, so
+// the parsing below is unchanged and the machine never opens anything.
+fciInfo *fc_loadFCI(himemPtr src, himemPtr address, himemPtr paletteAddress)
 {
     static byte numColumns, numRows, lastcolorIndex;
     static byte fciOptions;
     static byte reservedSysPalette;
 
-    FILE *fcifile;
     word palsize;
     word imgsize;
     word bytesRead;
@@ -528,13 +494,8 @@ fciInfo *fc_loadFCI(char *filename, himemPtr address, himemPtr paletteAddress)
         infoBlocks[infoBlockCount++] = info;
     }
 
-    fcifile = fopen(filename, "rb");
-
-    if (!fcifile)
-    {
-        fc_fatal("fci not found %s", filename);
-    }
-    fread(fcbuf, 1, 9, fcifile);
+    lcopy(src, (long)fcbuf, 9);
+    src += 9;
 
     numRows = fcbuf[5];
     numColumns = fcbuf[6];
@@ -557,29 +518,16 @@ fciInfo *fc_loadFCI(char *filename, himemPtr address, himemPtr paletteAddress)
         palAdr = paletteAddress;
     }
 
-    // **Streamed through fcbuf rather than into a malloc of its own.** A 255
-    // colour palette is 765 bytes in one piece, which was more heap than the
-    // whole of the rest of the program wanted put together -- and under cc65,
-    // where the heap was whatever RAM was left, nobody had to notice. It is
-    // read here in FCBUFSIZE pieces and DMAd up as it arrives.
-    {
-        word remaining = palsize;
-        himemPtr at = palAdr;
-        while (remaining)
-        {
-            word chunk = (remaining > FCBUFSIZE) ? FCBUFSIZE : remaining;
-            if (fread(fcbuf, 1, chunk, fcifile) != chunk)
-            {
-                fc_fatal("short palette in %s", filename);
-            }
-            lcopy((long)fcbuf, at, chunk);
-            at += chunk;
-            remaining -= chunk;
-        }
-    }
+    // One DMA, where this used to be a loop through a 255 byte buffer: the
+    // palette is 765 bytes and both ends of the copy are 28 bit addresses now,
+    // so there is nothing to stream it through.
+    lcopy(src, palAdr, palsize);
+    src += palsize;
+
     imgsize = numColumns * numRows * 64;
 
-    fread(fcbuf, 1, 3, fcifile);
+    lcopy(src, (long)fcbuf, 3);
+    src += 3;
     // "IMG", not "img": png2fci writes the marker in upper case ASCII. This
     // read it as "img" and matched, because cc65 compiled every string literal
     // into PETSCII, where lower case ASCII letters become the codes $41-$5A --
@@ -587,7 +535,7 @@ fciInfo *fc_loadFCI(char *filename, himemPtr address, himemPtr paletteAddress)
     // written, so the case here has to be the case in the file.
     if (0 != memcmp(fcbuf, "IMG", 3))
     {
-        fc_fatal("image marker not found in %s", filename);
+        fc_fatal("image marker not found at %lx", src);
     }
 
     if (!address)
@@ -595,7 +543,7 @@ fciInfo *fc_loadFCI(char *filename, himemPtr address, himemPtr paletteAddress)
         bitmampAdr = fc_allocGraphMem(imgsize);
         if (bitmampAdr == 0)
         {
-            fc_fatal("no memory for %s", filename);
+            fc_fatal("no memory for fci at %lx", src);
         }
     }
     else
@@ -603,8 +551,8 @@ fciInfo *fc_loadFCI(char *filename, himemPtr address, himemPtr paletteAddress)
         bitmampAdr = address;
     }
 
-    bytesRead = readExt(fcifile, bitmampAdr, false);
-    fclose(fcifile);
+    lcopy(src, bitmampAdr, imgsize);
+    bytesRead = imgsize;
 
     if (info != NULL)
     {
@@ -713,14 +661,6 @@ void fc_loadFCIPalette(fciInfo *info)
 {
     fc_loadPalette(info->paletteAdr, info->paletteSize,
                    info->reservedSysPalette);
-}
-
-fciInfo *fc_displayFCIFile(char *filename, byte x0, byte y0)
-{
-    fciInfo *info;
-    info = fc_loadFCI(filename, 0, 0);
-    fc_displayFCI(info, x0, y0, true);
-    return info;
 }
 
 void fc_scrollUp()

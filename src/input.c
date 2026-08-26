@@ -154,12 +154,28 @@ static const byte arrow_outline[63] = {
     0x01, 0xf0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 
-// A 16 bit sprite pointer is an address divided by 64, so each of the two
-// shapes has to start on a 64 byte boundary. There is no way to ask C for
-// that, so this holds three blocks' worth and the copies go to the two
-// aligned ones inside it.
-static byte arrow_ram[192];
-static word sprite_ptrs[8];     // the list SPRPTRADR is pointed at
+// **Everything the sprite hardware is pointed at has to be 64 byte aligned**,
+// and there is no way to ask C for that, so this is one buffer with a spare
+// block in it and the three things that need alignment are placed inside:
+//
+//      +0     the pointer list SPRPTRADR is given
+//      +64    the arrow
+//      +128   its outline
+//
+// A 16 bit sprite pointer is an address divided by 64, which is the obvious
+// half of that: a shape that does not start on a boundary has no pointer that
+// names it. **The list itself is the half that is easy to miss.** The VIC-IV
+// does not use the low bits of the address in SPRPTRADR either: pointed at a
+// list at $1703 it reads one at $1700, and the two bytes it finds there are
+// not a sprite pointer but whatever the variable before it happens to hold.
+//
+// This worked for months by accident, because the linker happened to put the
+// list on a boundary. Taking the file loading out of fcio.c in 2026 moved
+// every one of these variables a few bytes, the list landed at $1703, the two
+// bytes at $1700 were zero -- and sprite 0 dutifully drew the 63 bytes at
+// $0000, which is zero page, which looks exactly like the noise it looked
+// like. Nothing about the arrow had changed.
+static byte sprite_ram[192 + 63];
 
 static byte prev_potx, prev_poty;
 static byte button_held;        // the button as it was at the last poll
@@ -300,18 +316,27 @@ static void place_pointer(void) {
 }
 
 static void pointer_init(void) {
-    word aligned = ((word)arrow_ram + 63) & 0xffc0;
+    word list = ((word)sprite_ram + 63) & 0xffc0;
+    word body = list + 64;
+    word ptr = body / 64;
     byte i;
 
     for(i = 0; i < 63; i++) {
-        POKE(aligned + i, arrow_body[i]);
-        POKE(aligned + 64 + i, arrow_outline[i]);
+        POKE(body + i, arrow_body[i]);
+        POKE(body + 64 + i, arrow_outline[i]);
     }
-    for(i = 0; i < 8; i++) sprite_ptrs[i] = aligned / 64;
-    sprite_ptrs[1] = aligned / 64 + 1;
+    // Every sprite points at the arrow; sprite 1, the outline, at the block
+    // after it. The six the game never turns on are pointed somewhere valid
+    // rather than left as whatever was in the buffer.
+    for(i = 0; i < 8; i++) {
+        POKE(list + 2 * i, (byte)ptr);
+        POKE(list + 2 * i + 1, (byte)(ptr >> 8));
+    }
+    POKE(list + 2, (byte)(ptr + 1));
+    POKE(list + 3, (byte)((ptr + 1) >> 8));
 
-    POKE(SPRPTRADR, (byte)(word)sprite_ptrs);
-    POKE(SPRPTRADR + 1, (byte)((word)sprite_ptrs >> 8));
+    POKE(SPRPTRADR, (byte)list);
+    POKE(SPRPTRADR + 1, (byte)(list >> 8));
     POKE(SPRPTRADR + 2, 0x80);           // bank 0, and 16 bit pointers
 
     POKE(SPR0_COLOUR, FC_COLOR_RED);

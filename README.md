@@ -5,11 +5,17 @@ The Hex game for the MEGA65 computer, with an AI using Monte Carlo simulation an
 
 # Getting started
 
-Run the hexgame.d81 file in an emulator or on a real MEGA65.
+**It is one file.** `disc/hexgame.prg` is the whole game -- program, tune,
+sound effects and tile sheet -- and it needs no disk. Put it on the SD card of
+a real MEGA65 and run it, or:
 
-A typical command to start the emulator is:
+    > xemu-xmega65 -prg disc/hexgame.prg
 
-    > xemu-xmega65 -8 disc/hexgame.d81 
+It used to be a D81 with an `autoboot.c65` and a `hexgame.fci` on it. The two
+of them are 94 KB, which does not fit in a 6502's address space at once;
+[exomizer](https://bitbucket.org/magli143/exomizer/wiki/Home) makes them 39 KB,
+which does, and a small unpacker at the front of the file puts them where they
+belong. See `tools/mkprg.py` and `src/stage1.c`.
 
 # Compiling and building
 
@@ -17,15 +23,18 @@ The game is built with the [Calypsi 6502 tool
 chain](https://github.com/hth313/Calypsi-tool-chains), version 5.18 or later,
 which needs `cc6502`, `as6502` and `ln6502` on your `PATH`. You will also need:
 
-- `c1541` from [VICE](https://vice-emu.sourceforge.io/), which writes the D81
+- **exomizer** on your `PATH`, which compresses the two halves of the file
 - [Xemu](https://github.com/lgblgblgb/xemu) for `xemu-xmega65`, to run it
 
 ```sh
-make            # build build/hexgame.d81
+make            # build build/hexgame.prg
 make run        # build it and boot it in the emulator
-make release    # copy the built disk over disc/hexgame.d81, the one checked in
+make game       # boot the game on its own, without the unpacker in front
+make release    # copy the built file over disc/hexgame.prg, the one checked in
 make clean
 ```
+
+`c1541` from VICE used to be needed, to write the D81. It is not any more.
 
 Two more tools are needed only when an asset changes, and both are checked in
 already built, so an ordinary build never calls them:

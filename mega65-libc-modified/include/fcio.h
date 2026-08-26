@@ -97,9 +97,8 @@ extern textwin *gCurrentWin; ///< current window
  * @param config pointer to FCIO config block (or NULL for standard configuration) 
  * @param rows character rows (or 0 for default row count)
  * @param rrw_size raster rewrite size (or 0 no rrw)
- * @param reservedBitmapFile reserved bitmap to load upon initialization (or NULL for none)
  */
-void fc_init(byte h640, byte v400, fcioConf *config, byte rows, byte rrw_size, char *reservedBitmapFile);
+void fc_init(byte h640, byte v400, fcioConf *config, byte rows, byte rrw_size);
 
 /**
  * @brief set new full color screen mode
@@ -461,7 +460,7 @@ void fc_addGraphicsRect(byte x0, byte y0, byte width, byte height,
  * @warning only loads the picture, doesn't display it!
  * 
  */
-fciInfo *fc_loadFCI(char *filename, himemPtr address, himemPtr paletteAddress);
+fciInfo *fc_loadFCI(himemPtr src, himemPtr address, himemPtr paletteAddress);
 
 /**
  * @brief display FCI image
@@ -491,7 +490,6 @@ void fc_fadeFCI(fciInfo *info, byte x0, byte y0, byte steps);
  * @param y0 origin y
  * @return fciInfo* associated fciInfo block for file
  */
-fciInfo *fc_displayFCIFile(char *filename, byte x0, byte y0);
 
 /**
  * @brief plot extended (==full color) character

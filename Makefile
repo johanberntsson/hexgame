@@ -70,28 +70,37 @@ MUSIC_ASM = $(BUILD)/music_asm.s
 OBJS     += $(BUILD)/music_asm.o
 
 ELF      = $(BUILD)/hexgame.elf
-# The MEGA65 ROM autoboots a file called autoboot.c65 and nothing else.
-PRG      = $(BUILD)/autoboot.c65
-D81      = $(BUILD)/hexgame.d81
+GAME     = $(BUILD)/hexgame-game.prg      # the game on its own, before packing
+PRG      = $(BUILD)/hexgame.prg           # what gets handed out
 
-# Everything in res/ goes on the disk, and the name the game opens is this name
-# -- see the load in src/hexgame.c. It is checked in, so a clone builds the disk
-# without pypng; the rule below only fires when img-src/hexgame.png is actually
-# newer. **There used to be three more.** The tune and the two sound effects are
-# assembled into the program now (above), so the tile sheet is the only thing
-# left that has to be read off a disk at all.
+# **The one resource left, and it is not on a disk either.** res/hexgame.fci is
+# packed into $(PRG) compressed and unpacked into attic RAM by stage 1 before
+# the game runs -- see tools/mkprg.py. It is checked in, so a clone builds
+# without pypng; the rule below only fires when img-src/hexgame.png is newer.
 RES      = res/hexgame.fci
 
-all: $(D81)
+# Where stage 1 puts the tile sheet. **src/hexgame.c has this number too**, as
+# FCI_SOURCE, and the two have to agree.
+FCI_ADDR = 0x8100000
 
-run: $(D81)
-	xemu-xmega65 -besure -8 $(D81)
+# Stage 1 lives above the streams so that it survives unpacking the game over
+# them. **stage1.scm and src/boot.s have these numbers too.** mkprg.py pads the
+# file out to the first and says so if the streams have grown into it.
+STAGE1_ADDR  = 0xb800
+STAGE1_ENTRY = 0xb820
 
-# No disk, no resources: boots the program straight into memory. It gets as far
-# as the first fopen and stops, which is enough to see that the build links and
-# starts, and nothing more.
-prg: $(PRG)
+all: $(PRG)
+
+run: $(PRG)
 	xemu-xmega65 -besure -prg $(PRG)
+
+# The game on its own, with nothing in front of it. It gets as far as looking
+# for the tile sheet stage 1 would have put in attic RAM, does not find it, and
+# stops on fcio's fatal error screen -- which is enough to see that it links,
+# starts, and sets the display up, and is the quick way to test a change to the
+# game without waiting on exomizer.
+game: $(GAME)
+	xemu-xmega65 -besure -prg $(GAME)
 
 $(BUILD):
 	mkdir -p $(BUILD)
@@ -134,12 +143,42 @@ $(ELF): $(OBJS)
 	ln6502 $(LDFLAGS) --cstack-size $(CSTACK) --heap-size $(HEAP) \
 	    --list-file $(BUILD)/hexgame.lst -o $@ $(LINKFILE) $(OBJS)
 
-# -o names the ELF; ln6502 writes the PRG beside it under the same stem.
-$(PRG): $(ELF)
+# -o names the ELF; ln6502 writes the PRG beside it under the same stem. It is
+# copied out from under that name because the packed file below is what gets to
+# be called hexgame.prg.
+$(GAME): $(ELF)
 	cp $(BUILD)/hexgame.prg $@
 
-$(D81): $(PRG) $(RES)
-	tools/calypsi/builddisc.sh $@ $(PRG) $(RES)
+# ------------------------------------------------------------ the one file
+#
+# Stage 1: the decruncher, its table, and the boot stub that hands over to it.
+# Three small links of their own rather than part of the game, because they run
+# at different addresses and at a different time -- see src/stage1.c.
+# stage1.o, stage1_tab.o and boot.o come out of the pattern rules above --
+# src/ is on the vpath. s1_memory.o needs its own, only because it is the same
+# memory.c the game links and must not collide with the game's object.
+S1_OBJS  = $(BUILD)/stage1_tab.o $(BUILD)/stage1.o $(BUILD)/s1_memory.o
+
+$(BUILD)/s1_memory.o: mega65-libc-modified/src/memory.c $(HDRS) Makefile | $(BUILD)
+	cc6502 $(CFLAGS) -c -o $@ $<
+
+$(BUILD)/stage1.raw: $(S1_OBJS) stage1.scm
+	ln6502 $(TARGET) --output-format=raw --cstack-size 256 --heap-size 0 \
+	    --list-file $(BUILD)/stage1.lst -o $(BUILD)/stage1.elf \
+	    stage1.scm $(S1_OBJS)
+
+$(BUILD)/boot.raw: $(BUILD)/boot.o boot.scm
+	ln6502 $(TARGET) --no-tree-shaking --no-auto-libraries \
+	    --no-data-init-table-section --output-format raw \
+	    -o $(BUILD)/boot.elf boot.scm $(BUILD)/boot.o
+
+# The packer, which also checks its own work: it decrunches both streams back
+# and compares, and proves that unpacking the game over the top of its own
+# compressed bytes cannot overrun. See tools/mkprg.py.
+$(PRG): $(GAME) $(RES) $(BUILD)/stage1.raw $(BUILD)/boot.raw tools/mkprg.py
+	python3 tools/mkprg.py --boot $(BUILD)/boot.raw \
+	    --stage1 $(BUILD)/stage1.raw --stage1-addr $(STAGE1_ADDR) \
+	    --game $(GAME) --fci $(RES) --fci-addr $(FCI_ADDR) -o $@
 
 # ---------------------------------------------------------------- resources
 
@@ -150,17 +189,17 @@ $(D81): $(PRG) $(RES)
 res/%.fci: img-src/%.png tools/png2fci.py
 	python3 tools/png2fci.py -v0r $< $@
 
-# The disk to hand out, which is the one the README tells people to run and the
-# one that is checked in. Kept out of $(D81)'s own rule so that an ordinary
+# The file to hand out, which is the one the README tells people to run and the
+# one that is checked in. Kept out of $(PRG)'s own rule so that an ordinary
 # build does not rewrite a file under version control every time.
-RELEASE = disc/hexgame.d81
+RELEASE = release/hexgame.prg
 
-release: $(D81)
+release: $(PRG)
 	mkdir -p $(dir $(RELEASE))
-	cp $(D81) $(RELEASE)
+	cp $(PRG) $(RELEASE)
 	@echo "release: $(RELEASE)"
 
 clean:
 	rm -rf $(BUILD)
 
-.PHONY: all run prg release checkmusic splint clean
+.PHONY: all run game release checkmusic splint clean

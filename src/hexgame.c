@@ -2,7 +2,7 @@
    agent based on Monte Carlo simulation (mcs). The
    game state is checked with a Breath-First search (bfs)
 
-   Written by Johan Berntsson, 10-20 January 2022.
+   Written by Johan Berntsson, 10-20 January 2022, and 19-26 August 2026.
 
    The game uses the VIC-IV full color character mode
    on the MEGA65, where each graphic tile has an
@@ -11,12 +11,6 @@
    converted to fci format from png pictures with transparency.
    Merging tiles with transparency allows mixing irregular
    shaped tiles, such as the hexagons used in the game board.
-
-    TODO:
-    1. can fci be embedded or compressed?
-    2. escape to reset the machine?
-    3. Problems when binary > $8000???
-    4. Improve the AI
 */
 
 #include <fcio.h>
@@ -28,18 +22,20 @@
 
 extern unsigned int loadExt(char *filename, himemPtr addr, byte skipCBMAddressBytes); // from fcio.c
 
-// **The resource names are upper case because that is what is on the disk.**
-// CBM directory entries hold PETSCII, where the letters are $41-$5A -- the
-// same codes upper case ASCII uses -- and the KERNAL compares the name it is
-// given byte for byte. cc65's runtime translated ASCII to PETSCII on the way
-// into open(); Calypsi passes the bytes through, so a lower case name here
-// matches nothing on the disk and the open quietly yields an empty file.
+// **This program opens no files, and there is no disk for it to open one on.**
+// It used to boot off a D81 as autoboot.c65 and read HEXGAME.FCI, MUSIC.PRG,
+// MARBA.WAV and DOWNLEAD.WAV off it -- and the names had to be upper case,
+// because a CBM directory holds PETSCII and Calypsi passes string literals
+// through as written. All four are gone. The tune and the sound effects are
+// assembled into the program (music/, via tools/acme2calypsi.py), and the tile
+// sheet arrives in attic RAM before main() runs: hexgame.prg carries it
+// compressed and src/stage1.c unpacks it. See tools/mkprg.py.
 
-// **Nothing here is a sound file any more.** The tune, and the two noises the
-// game makes, are ACME sources under music/ assembled into the program by
-// tools/acme2calypsi.py; there were two 8 bit samples fed to the MEGA65's
-// audio DMA out of chip RAM at $16000 and $18000, and they were 13.5 KB of the
-// disk. See mega65-hexgame.scm and src/music_irq.s.
+// Where stage 1 leaves the tile sheet -- the same bytes res/hexgame.fci holds,
+// at an address instead of in a file. **The Makefile passes this same number
+// to tools/mkprg.py** and the two have to agree; attic RAM is 8 MB and this is
+// a megabyte clear of the $8000000 that fcio hands out bitmaps from.
+#define FCI_SOURCE 0x8100000l
 
 // music/player.asm and music/sfx.asm, via build/music_asm.s
 void music_init(byte song);
@@ -90,20 +86,19 @@ fcioConf myConfig = {
     0xff81000l, // attribute/colour ram
 };
 
-// **Everything that touches the disk happens here, and only here.**
-// enter_tile_mode() below flattens the memory map into the C64 configuration,
-// and the KERNAL that survives that is the C64 one at $2E000 -- which this
-// program, booted by the C65 ROM, never initialised and cannot open a file
-// through. The cc65 build could load whenever it liked because it was a C64
-// mode program from the first instruction; this one gets one chance, before
-// the map changes.
+// **This used to be the one place that touched the disk, and the ordering rule
+// that went with it is gone.** The rule was that enter_tile_mode() flattens
+// the memory map and leaves a C64 KERNAL this program never initialised, so
+// nothing could read a file after it -- and everything had to be loaded here,
+// first. There are no files now, so all that is left is setting the screen up
+// and pointing fcio at the tile sheet stage 1 has already put in attic RAM.
 void load_resources() {
-    fc_init(1, 1, &myConfig, 0, 47, 0);
+    fc_init(1, 1, &myConfig, 0, 47);
 
     fc_textcolor(FC_COLOR_WHITE);
     fc_putsxy(0, 0, "loading...");
 
-    tiles = fc_loadFCI("HEXGAME.FCI", 0, 0);
+    tiles = fc_loadFCI(FCI_SOURCE, 0, 0);
     fc_loadFCIPalette(tiles);
 
 }
@@ -371,7 +366,7 @@ void show_title_screen() {
     fc_textcolor(FC_COLOR_GREEN);
     fc_displayTile(tiles, 19, 0, 0, 8, 40, 17, 0);
     fc_textcolor(FC_COLOR_YELLOW);
-    fc_center(0, 19, 80, "Written in 2022 by Johan Berntsson");
+    fc_center(0, 19, 80, "Written in 2026 by Johan Berntsson");
     fc_textcolor(FC_COLOR_GREEN);
     fc_putsxy(20, 49, "Music (F1): ");
     fc_putsxy(40, 49, "Difficulty (F2): ");
