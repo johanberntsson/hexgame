@@ -33,9 +33,11 @@ already built, so an ordinary build never calls them:
 - **pypng** (`pip install pypng`), for `tools/png2fci.py`, when
   `img-src/hexgame.png` changes. See `assets/tile/readme.txt` for how the tile
   sheet is assembled and why it has to be reduced to 239 colours by hand.
-- **sidreloc** and **psid64**, when the music changes. See
-  `assets/music/Makefile`, which documents where in memory the tune has to
-  land and why.
+- **acme**, when the music changes — and only to check it. The tune and its
+  player live in `music/` as ACME sources and are translated into the Calypsi
+  assembler by `tools/acme2calypsi.py`, which needs nothing but Python;
+  `make checkmusic` assembles the same source both ways and compares the
+  bytes.
 
 It used to be built with cc65 driven by scons, which is what most of the code
 was written against. The port is [described below](#porting-from-cc65).

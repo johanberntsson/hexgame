@@ -59,16 +59,28 @@ OBJS     = $(patsubst %.c,$(BUILD)/%.o,$(notdir $(SRCS))) \
 vpath %.c src mega65-libc-modified/src
 vpath %.s src mega65-libc-modified/src
 
+# The tune and its player are written in ACME under music/, and
+# tools/acme2calypsi.py turns them into the assembler the rest of this build
+# speaks. Generated into build/ rather than checked into src/, so music/ holds
+# the only copy of the tune there is. The converter needs Python and nothing
+# else; ACME itself is needed only by `make checkmusic`, which proves the two
+# assemblers agree byte for byte.
+MUSIC_SRC = music/player.asm music/music.asm music/gambit.asm music/sfx.asm
+MUSIC_ASM = $(BUILD)/music_asm.s
+OBJS     += $(BUILD)/music_asm.o
+
 ELF      = $(BUILD)/hexgame.elf
 # The MEGA65 ROM autoboots a file called autoboot.c65 and nothing else.
 PRG      = $(BUILD)/autoboot.c65
 D81      = $(BUILD)/hexgame.d81
 
-# Everything in res/ goes on the disk, and the names the game opens are these
-# names -- see the loads in src/hexgame.c. They are all checked in, so a clone
-# builds the disk without pypng or psid64; the rules below only fire when a
-# source asset is actually newer than what it produces.
-RES      = res/hexgame.fci res/music.prg res/marba.wav res/downlead.wav
+# Everything in res/ goes on the disk, and the name the game opens is this name
+# -- see the load in src/hexgame.c. It is checked in, so a clone builds the disk
+# without pypng; the rule below only fires when img-src/hexgame.png is actually
+# newer. **There used to be three more.** The tune and the two sound effects are
+# assembled into the program now (above), so the tile sheet is the only thing
+# left that has to be read off a disk at all.
+RES      = res/hexgame.fci
 
 all: $(D81)
 
@@ -95,9 +107,29 @@ $(BUILD)/%.o: %.c $(HDRS) Makefile | $(BUILD)
 $(BUILD)/%.o: %.s Makefile | $(BUILD)
 	as6502 $(ASFLAGS) -o $@ $<
 
+# The tune. --zp is the one thing the converter changes rather than
+# translates: the ACME player picks its two zero page pointers by hand at $fb,
+# which a C64 program may do and a program sharing zero page with a C compiler
+# and a live KERNAL may not. The names go into a zzpage bss section instead and
+# the linker places them -- see mega65-hexgame.scm. --public is the four
+# entry points the rest of the program calls; everything else stays local to
+# the generated object.
+$(MUSIC_ASM): $(MUSIC_SRC) tools/acme2calypsi.py Makefile | $(BUILD)
+	python3 tools/acme2calypsi.py music/player.asm $@ \
+	    --zp ZP_PTR:2,ZP_ARP:2 --public music_init,music_play,sfx_start,sfx_tick
+
+$(BUILD)/music_asm.o: $(MUSIC_ASM) Makefile | $(BUILD)
+	as6502 $(ASFLAGS) -o $@ $<
+
+# Both assemblers over the same tune, byte for byte. Needs acme on PATH.
+# **Run it after touching anything under music/**: a translator between two
+# assemblers is either exactly right or quietly playing a different tune.
+checkmusic:
+	python3 tools/checkmusic.py
+
 # The list file is the memory map, and it is the only place the program's real
 # size is written down -- worth reading after any change that might have pushed
-# it towards $7FFF.
+# it towards $9FFF.
 $(ELF): $(OBJS)
 	ln6502 $(LDFLAGS) --cstack-size $(CSTACK) --heap-size $(HEAP) \
 	    --list-file $(BUILD)/hexgame.lst -o $@ $(LINKFILE) $(OBJS)
@@ -118,12 +150,6 @@ $(D81): $(PRG) $(RES)
 res/%.fci: img-src/%.png tools/png2fci.py
 	python3 tools/png2fci.py -v0r $< $@
 
-# The tune: a SID relocated to $8000 by sidreloc, turned into raw data at that
-# address by psid64 -n. No driver -- the game calls init and play itself from
-# src/music_irq.s, and the addresses there ($8000 and $8059) are this file's.
-res/music.prg: assets/music/music.sid
-	psid64 -n -o $@ $<
-
 # The disk to hand out, which is the one the README tells people to run and the
 # one that is checked in. Kept out of $(D81)'s own rule so that an ordinary
 # build does not rewrite a file under version control every time.
@@ -137,4 +163,4 @@ release: $(D81)
 clean:
 	rm -rf $(BUILD)
 
-.PHONY: all run prg release splint clean
+.PHONY: all run prg release checkmusic splint clean

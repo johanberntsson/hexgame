@@ -1,30 +1,26 @@
-; The tune, and the interrupt that drives it.
+; The interrupt that drives the tune.
 ;
-; The music is a SID relocated to $8000 and stripped of any player by
-; `psid64 -n` (see the res/music.prg rule in the Makefile), so what is at
-; $8000 is the tune's own init and play routines and nothing else. The two
-; addresses below are that file's, and change with it.
+; The tune and its player are ACME sources under music/, translated into
+; build/music_asm.s by tools/acme2calypsi.py and linked into the program like
+; any other object -- so `music_init` and `music_play` are ordinary symbols
+; here, not addresses in a file loaded off the disk. `music_init` takes the
+; song number in A, which is where Calypsi puts a byte argument, so C calls it
+; directly and there is no shim in this file for it any more.
 ;
-; **$9000, where the cc65 build used $C000.** That build ran the game in C64
-; mode behind a wrapper, and $C000 was free RAM. This one is a C65-mode program
-; and $C000-$CFFF is the C65's interface ROM, so the tune moved down into the
-; 4 KB the linker script holds back above the program. It also owns zero page
-; $7C-$7F, which is held back the same way. See mega65-hexgame.scm.
-
-MUSIC_INIT: .equ    0x9000
-MUSIC_PLAY: .equ    0x9059
+; What is left is the interrupt. There used to be a note here about the tune
+; living at $9000 because $C000 is the C65's interface ROM; that is no longer a
+; question the program has to answer -- the linker places the player wherever
+; it likes inside the program.
 
 CINV:       .equ    0x0314          ; the KERNAL's IRQ vector, in RAM
 KERNAL_IRQ: .equ    0xea31          ; where the C64 KERNAL's handler resumes
 
             .extern option_music    ; OPTION_MUSIC_ON is 0, OFF is 1
+            .extern music_play      ; build/music_asm.s, from music/player.asm
+            .extern sfx_tick        ; ... and music/sfx.asm
 
             .section code,text
-            .public music_init, music_install, music_irq
-
-; void music_init(uint8_t song) -- the song number arrives in A, which is
-; where the tune's init routine wants it, so this is a jump and not a call.
-music_init: jmp     MUSIC_INIT
+            .public music_install, music_irq
 
 ; void music_install(void). Called once, after the ROM has been banked out and
 ; with interrupts already disabled by the caller -- $0314 holds the C65 ROM's
@@ -59,10 +55,17 @@ music_install:
 ; did. The keyboard is not read through it -- the game takes keys straight off
 ; the MEGA65's $D610 -- so the only thing lost if this chain ever breaks is the
 ; clock.
+;
+; **The sound effects are ticked whether or not the tune is playing, and after
+; it.** F1 switches the music off, not the game's own noises; and an effect
+; borrows one of the tune's voices, so it has to have the last word on that
+; voice's registers in any frame where both of them run. See music/sfx.asm.
 music_irq:  lda     option_music
-            bne     ack$            ; non-zero is OPTION_MUSIC_OFF
-            jsr     MUSIC_PLAY
+            bne     sfx$            ; non-zero is OPTION_MUSIC_OFF
+            jsr     music_play
 
-ack$:       lda     #0xff
+sfx$:       jsr     sfx_tick
+
+            lda     #0xff
             sta     0xd019          ; acknowledge the raster interrupt
             jmp     KERNAL_IRQ

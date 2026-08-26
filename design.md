@@ -123,9 +123,68 @@ The init and play addresses can be inspected with
 
 **The tune moved off $C000 in 2026.** That address was free because the game
 was a C64 mode program launched from a wrapper; the Calypsi build is a C65 mode
-program and $C000-$CFFF is the C65's interface ROM. It is relocated to $9000
-now, into a hole `mega65-hexgame.scm` holds back above the program, and the
-sidreloc invocation that puts it there is in `assets/music/Makefile`.
+program and $C000-$CFFF is the C65's interface ROM. It was relocated to $9000
+instead, into a hole `mega65-hexgame.scm` held back above the program.
+
+**And then it stopped being a SID file at all (Aug 2026).** Everything above
+describes a tune that is somebody else's binary: a block of 6502 with an init
+and a play address, relocated by a tool that has to be told which addresses it
+may move and which zero page bytes it may have, loaded off the disk at a fixed
+address that the linker then has to be kept out of. Three files had to agree
+about $9000 and $7C-$7F — the sidreloc invocation, the linker script and
+`src/music_irq.s` — and none of them could check the other two.
+
+The music is now an ACME source: `music/player.asm` is a small three voice
+player and `music/gambit.asm` is the song, both written rather than lifted.
+`tools/acme2calypsi.py` translates them into the Calypsi assembler and the
+result is **linked into the program** like any other object, so:
+
+- there is no `MUSIC.PRG` on the disk and no load to get wrong;
+- there are no addresses to keep in step. `music_init` and `music_play` are
+  symbols the linker places, and the player's two zero page pointers are a
+  `zzpage` bss section it places too;
+- the program area goes back to $2001-$9FFF and zero page back to $7F, which is
+  where the 4 KB and the four bytes the old scheme cost show up again. Player
+  and tune together are 3045 bytes, so it is about 1 KB ahead;
+- the one ordering rule got shorter. The tune used to be one of the things
+  `load_resources()` had to read before the memory map was flattened; now the
+  only thing that happens is `music_init(0)` beside `music_install()`, after.
+
+**The sample sound effects went the same way (Aug 2026).** The click when a
+stone goes down and the buzz when you aim at a hexagon that is taken were 8 bit
+samples played through the MEGA65's audio DMA: `res/marba.wav` and
+`res/downlead.wav`, 7500 and 6014 bytes, loaded into chip RAM at $16000 and
+$18000 and started with two dozen POKEs into $D720. They are twelve pairs of
+bytes in `music/sfx.asm` now, played on the SID by the player that was already
+there. Taking `play_sample()` and the two loads out paid for the effects engine
+twice over: the program is 243 bytes smaller than it was before any of this,
+and the disk lost 13.5 KB.
+
+The interesting part is that the SID has three voices and the tune uses all
+three, so an effect **borrows one**. `sfx_owner` names the voice for as long as
+one is playing and the player skips the five places it would write that voice's
+registers — while going on tracking its pattern, arpeggio and slide exactly as
+before, so nothing drifts out of time. The bass is the voice lent out, because
+it is a pluck that has mostly decayed by the time an effect is over; the harp
+is the tune's engine and the melody is the tune.
+
+Two things about the SID had to be respected and are the reason this took more
+than an afternoon. An envelope triggers only on a 0 → 1 edge of the gate bit,
+so an effect landing on a voice the tune left gated on gets no attack at all —
+and raising the sustain level during the sustain phase does not raise the
+envelope, it drains it. So an effect spends its first frame doing the same hard
+restart the player does before every note, and opens the gate on the second.
+That is 40 ms of latency on a click, which nobody notices, and the difference
+between a sound and silence.
+
+They also play now with the music on, which the samples never did.
+
+The converter is the part that could be quietly wrong, so it is checked rather
+than trusted: `make checkmusic` assembles `music/player.asm` with ACME and with
+Calypsi at the same origin, pins the linker's zero page to the addresses the
+ACME source picked, and compares the two images byte for byte. Both tools and
+the argument for them came from `~/commodore/SearchAndRescue`, which runs the
+same player under a different song.
 
 
 # Memory problems/fast IRQ loader

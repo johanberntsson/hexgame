@@ -35,26 +35,27 @@ extern unsigned int loadExt(char *filename, himemPtr addr, byte skipCBMAddressBy
 // into open(); Calypsi passes the bytes through, so a lower case name here
 // matches nothing on the disk and the open quietly yields an empty file.
 
-// The two samples live in the free chip RAM of bank 1, above the screen, the
-// reserved bitmap and the palettes (see myConfig below); the audio DMA reads
-// them straight out of there. The tune is the exception: the CPU has to
-// execute it, so it goes in the 4 KB the linker script holds back above the
-// program. See mega65-hexgame.scm and src/music_irq.s.
-#define MUSIC_ADDRESS   0x9000l
-#define MARBA_ADDRESS   0x16000l
-#define MARBA_LENGTH    7500
-#define DOWNLEAD_ADDRESS 0x18000l
-#define DOWNLEAD_LENGTH 6014
+// **Nothing here is a sound file any more.** The tune, and the two noises the
+// game makes, are ACME sources under music/ assembled into the program by
+// tools/acme2calypsi.py; there were two 8 bit samples fed to the MEGA65's
+// audio DMA out of chip RAM at $16000 and $18000, and they were 13.5 KB of the
+// disk. See mega65-hexgame.scm and src/music_irq.s.
 
-// src/music_irq.s
+// music/player.asm and music/sfx.asm, via build/music_asm.s
 void music_init(byte song);
+void sfx_start(byte effect);
+// the effect numbers are music/sfx.asm's own, and have to agree with it
+#define SFX_CLICK 0     // a stone going down
+#define SFX_BUZZ  1     // that hexagon is taken
+// src/music_irq.s
 void music_install(void);
 
 #define TEXT_DELAY 6
 
-// add a song or not?
+// The SID: the tune and the sound effects both, since they are one player and
+// one interrupt. F1 switches the tune off at run time; the effects are the
+// game telling the player what just happened and are not part of that.
 #define ENABLE_MUSIC
-#define ENABLE_SAMPLES
 
 // global options. option_difficulty belongs to the AI and lives in
 // hexgame_ai.c; the values it takes are in hexgame_ai.h.
@@ -75,42 +76,6 @@ char option_difficulty_text[][7] = { "EASY  ", "NORMAL", "HARD  " };
 char *empty40 = "                                        ";
 
 
-#ifdef ENABLE_SAMPLES
-//#include "sample01.c"
-//#include "sample02.c"
-
-void play_sample(unsigned char ch, unsigned long sample_address, unsigned short sample_length)
-{
-  unsigned ch_ofs = ch << 4;
-  unsigned long time_base;
-
-  if (ch > 3) return;
-
-  // Start of sample
-  POKE(0xD721 + ch_ofs, sample_address & 0xff);
-  POKE(0xD722 + ch_ofs, (sample_address >> 8) & 0xff);
-  POKE(0xD723 + ch_ofs, (sample_address >> 16) & 0xff);
-  POKE(0xD72A + ch_ofs, sample_address & 0xff);
-  POKE(0xD72B + ch_ofs, (sample_address >> 8) & 0xff);
-  POKE(0xD72C + ch_ofs, (sample_address >> 16) & 0xff);
-  // pointer to end of sample
-  POKE(0xD727 + ch_ofs, (sample_address + sample_length) & 0xff);
-  POKE(0xD728 + ch_ofs, (sample_address + sample_length) >> 8);
-  // frequency
-  time_base = 0x1a00;
-  POKE(0xD724 + ch_ofs, time_base & 0xff);
-  POKE(0xD725 + ch_ofs, time_base >> 8);
-  POKE(0xD726 + ch_ofs, time_base >> 16);
-  // volume
-  //POKE(0xD729 + ch_ofs, 0x3F); // 1/4 Full volume
-  POKE(0xD729 + ch_ofs, 0xFF); // 4/4 Full volume
-  // Enable playback of channel 0, 8-bit samples, signed
-  POKE(0xD720 + ch_ofs, 0xA2);
-  POKE(0xD711 + ch_ofs, 0x80);
-
-}
-#endif 
-
 // Graphic assets
 fciInfo *tiles;
 
@@ -124,16 +89,6 @@ fcioConf myConfig = {
     0x8000000l, // loaded bitmaps base
     0xff81000l, // attribute/colour ram
 };
-
-#ifdef ENABLE_MUSIC
-void load_music() {
-    // The tune is raw SID data with no player in front of it, so it goes
-    // straight to the address it was relocated for. Skip the two CBM load
-    // address bytes.
-    loadExt("MUSIC.PRG", MUSIC_ADDRESS, 1);
-    music_init(0);
-}
-#endif
 
 // **Everything that touches the disk happens here, and only here.**
 // enter_tile_mode() below flattens the memory map into the C64 configuration,
@@ -151,13 +106,6 @@ void load_resources() {
     tiles = fc_loadFCI("HEXGAME.FCI", 0, 0);
     fc_loadFCIPalette(tiles);
 
-#ifdef ENABLE_MUSIC
-    load_music();
-#endif
-#ifdef ENABLE_SAMPLES
-    loadExt("MARBA.WAV", MARBA_ADDRESS, 0);
-    loadExt("DOWNLEAD.WAV", DOWNLEAD_ADDRESS, 0);
-#endif
 }
 
 // Hand the machine over to the game: $20000-$5FFFF becomes writable RAM for
@@ -173,6 +121,12 @@ void enter_tile_mode() {
     fc_setUniqueTileMode();
 
 #ifdef ENABLE_MUSIC
+    // Rewind the tune and then let the interrupt at it. This used to happen up
+    // in load_resources(), because that was where the tune was read off the
+    // disk; there is nothing to read now, and the player's state -- including
+    // the two zero page pointers the linker places for it -- is better set up
+    // here, past the last KERNAL call, than left to survive one.
+    music_init(0);
     music_install();
 #endif
 
@@ -286,8 +240,8 @@ byte player_turn() {
             case KEY_ENTER:
                 // only allowed if this hexagon is empty
                 if(board.tile[px][py] != HEX_EMPTY) {
-#ifdef ENABLE_SAMPLES
-                if(option_music == OPTION_MUSIC_OFF) play_sample(0, DOWNLEAD_ADDRESS, DOWNLEAD_LENGTH);
+#ifdef ENABLE_MUSIC
+                    sfx_start(SFX_BUZZ);
 #endif
                     key = 0;
                 }
@@ -317,8 +271,8 @@ byte player_turn() {
     board.redraw[px][py] = true;
     draw_board(BOARD_X0, BOARD_Y0);
 
-#ifdef ENABLE_SAMPLES
-    if(option_music == OPTION_MUSIC_OFF) play_sample(0, MARBA_ADDRESS, MARBA_LENGTH);
+#ifdef ENABLE_MUSIC
+    sfx_start(SFX_CLICK);
 #endif
 
     board.white_last_x = px;
