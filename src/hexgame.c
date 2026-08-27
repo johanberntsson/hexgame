@@ -75,6 +75,21 @@ char *empty40 = "                                        ";
 // Graphic assets
 fciInfo *tiles;
 
+// **The tile sheet, in characters across its top row.** Everything the board
+// is drawn from is in the sheet's first seven rows, so all of these are read
+// at t_y 0; the title logo is the only caller that reaches further down. That
+// used to matter -- fc_displayTile pointed the screen at row (y0 + y - t_y)
+// while writing the unique tile store at row (y + y0), so a tile from further
+// down drew in the right place and destroyed a cell t_y rows lower. The two
+// agree now; see mega65-libc-modified/src/fcio.c.
+#define TILE_HEX        0   // 6x7, the empty hexagon
+#define TILE_WHITE      6   // 6x7
+#define TILE_BLACK     12   // 6x7
+#define TILE_RIM_LEFT  18   // 3x7, the two left faces  (was the cursor tile)
+#define TILE_RIM_RIGHT 21   // 3x7, the two right faces
+#define TILE_RIM_TOP   24   // 6x3, the upper cap
+#define TILE_RIM_BOT   30   // 6x3, the lower cap
+
 // Grafic configuration
 fcioConf myConfig = {
     0x12000l,   // location of 16 bit screen (2*80*50 = $1f40)
@@ -240,14 +255,30 @@ void draw_board(byte x0, byte y0) {
                 board.redraw[x][y] = false;
                 xx = x0 + y*3+x*6;
                 yy = y0 + y*5;
-                fc_displayTile(tiles, xx, yy, 0, 0, 6, 7, 1); // hexagon
+                fc_displayTile(tiles, xx, yy, TILE_HEX, 0, 6, 7, 1);
                 if(board.tile[x][y] & HEX_WHITE) 
-                    fc_displayTile(tiles, xx, yy, 6, 0, 6, 7, 1);
+                    fc_displayTile(tiles, xx, yy, TILE_WHITE, 0, 6, 7, 1);
                 if(board.tile[x][y] & HEX_BLACK)
-                    fc_displayTile(tiles, xx, yy, 12, 0, 6, 7, 1);
-                // The fourth tile in the sheet is the old drawn cursor. It is
-                // sprite 0 now (see player_turn), so nothing sets HEX_CURSOR
-                // and nothing draws it.
+                    fc_displayTile(tiles, xx, yy, TILE_BLACK, 0, 6, 7, 1);
+                // **Which two edges are whose, drawn on the board itself.**
+                // A player who cannot see that white connects left to right
+                // builds a top to bottom chain and then reports the win check
+                // as broken -- it is the one rule of Hex, and the title screen
+                // was the only place it was stated. There is no room for a
+                // border *around* the board (it is 78 of the 80 columns wide
+                // and 47 of the 50 rows tall), so the rim goes on the outer
+                // face of the edge hexagons instead. Corner cells take two.
+                //
+                // Last, so that a rim thicker than these five pixels would
+                // still show over a stone rather than under it.
+                if(x == 0)
+                    fc_displayTile(tiles, xx, yy, TILE_RIM_LEFT, 0, 3, 7, 1);
+                if(x == board.size_minus_1)
+                    fc_displayTile(tiles, xx + 3, yy, TILE_RIM_RIGHT, 0, 3, 7, 1);
+                if(y == 0)
+                    fc_displayTile(tiles, xx, yy, TILE_RIM_TOP, 0, 6, 3, 1);
+                if(y == board.size_minus_1)
+                    fc_displayTile(tiles, xx, yy + 4, TILE_RIM_BOT, 0, 6, 3, 1);
             }
         }
     }

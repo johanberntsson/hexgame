@@ -1102,7 +1102,17 @@ void fc_displayTile(fciInfo *info, byte x0, byte y0, byte t_x, byte t_y, byte t_
         if(uniqueTileMode) {
             fromTileAddr = info->baseAdr + 64L*(t_x + (y * info->columns));
             // copy bitmap asset to location in $2xxxx - $5xxxx
-            rawToTileAddr = BITMAP_MIRROR + 64L * (x0 + ((y + y0) * gScreenColumns));
+            //
+            // **The row here has to be the row the screen pointer above uses.**
+            // It was (y + y0), which is the same thing only while t_y is 0: a
+            // tile taken from further down the sheet was displayed in the right
+            // place but written into the store belonging to a cell t_y rows
+            // lower, so it came out correct and quietly destroyed that cell.
+            // fc_displayTile(tiles, 19, 0, 0, 8, 40, 17, 0) -- the title logo,
+            // the only caller in this game that passes a non-zero t_y -- was
+            // clearing 40x17 characters of tile store below itself on the way
+            // past, which nothing happened to be using.
+            rawToTileAddr = BITMAP_MIRROR + 64L * (x0 + ((y0 + y - t_y) * gScreenColumns));
         } else {
             // use pointer directly to bitmap asset
             charIndex = info->baseAdr / 64L + t_x + (y * info->columns);
