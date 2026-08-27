@@ -6,6 +6,10 @@
 # with very special thanks to frau k., buba k. and candor k.!         #
 #######################################################################
 
+# For png,
+# pip install pypng
+#
+
 import sys
 from zlib import compress
 import png

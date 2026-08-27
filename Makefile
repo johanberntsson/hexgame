@@ -94,6 +94,9 @@ STAGE1_ENTRY = 0xb820
 all: $(PRG)
 
 run: $(RELEASE)
+	xemu-xmega65 -besure -prg $(RELEASE)/hexgame.prg
+
+d81: $(RELEASE)
 	xemu-xmega65 -besure -8 $(RELEASE)/hexgame.d81
 
 # The game on its own, with nothing in front of it. It gets as far as looking
