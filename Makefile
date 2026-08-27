@@ -40,6 +40,7 @@ CSTACK  ?= 512
 HEAP    ?= 512
 
 BUILD    = build
+RELEASE = release
 
 # src/hexgame_ai.c used to be #included at the bottom of src/hexgame.c, so that
 # it could see the game's globals. It is a translation unit of its own now, and
@@ -72,6 +73,7 @@ OBJS     += $(BUILD)/music_asm.o
 ELF      = $(BUILD)/hexgame.elf
 GAME     = $(BUILD)/hexgame-game.prg      # the game on its own, before packing
 PRG      = $(BUILD)/hexgame.prg           # what gets handed out
+D81      = $(BUILD)/hexgame.prg           # what gets handed out
 
 # **The one resource left, and it is not on a disk either.** res/hexgame.fci is
 # packed into $(PRG) compressed and unpacked into attic RAM by stage 1 before
@@ -91,8 +93,8 @@ STAGE1_ENTRY = 0xb820
 
 all: $(PRG)
 
-run: $(PRG)
-	xemu-xmega65 -besure -prg $(PRG)
+run: $(RELEASE)
+	xemu-xmega65 -besure -8 $(RELEASE)/hexgame.d81
 
 # The game on its own, with nothing in front of it. It gets as far as looking
 # for the tile sheet stage 1 would have put in attic RAM, does not find it, and
@@ -192,15 +194,14 @@ res/%.fci: img-src/%.png tools/png2fci.py
 # The file to hand out, which is the one the README tells people to run and the
 # one that is checked in. Kept out of $(PRG)'s own rule so that an ordinary
 # build does not rewrite a file under version control every time.
-RELEASE = release/hexgame.prg
 
 release: $(PRG)
 	mkdir -p $(dir $(RELEASE))
-	cp $(PRG) $(RELEASE)
-	c1541 -format "hexgame,hg" d81 release/hexgame.d81 -write release/hexgame.prg hexgame
-	@echo "release: $(RELEASE)"
+	cp $(PRG) $(RELEASE)/hexgame.prg
+	c1541 -format "hexgame,hg" d81 $(RELEASE)/hexgame.d81 -write $(RELEASE)/hexgame.prg hexgame
+	@echo "release: $(RELEASE)/hexgame.prg"
 
 clean:
 	rm -rf $(BUILD)
 
-.PHONY: all run game release checkmusic splint clean *.d81
+.PHONY: all run game release checkmusic splint clean
