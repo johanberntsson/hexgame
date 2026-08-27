@@ -104,30 +104,6 @@ See [design.md](design.md) for more information.
 
 Feedback and pull requests are always welcome and appreciated.
 
-# Porting from cc65
+# Credits
 
-The game moved to Calypsi in 2026. Most of the work was not the compiler but
-the two things cc65's C64 runtime had been doing silently:
-
-- **String literals were compiled into PETSCII.** Calypsi compiles them as
-  written, so anything compared byte for byte against the outside world had to
-  be spelled the way the bytes really are: the file names the game opens are
-  upper case now, because that is what a CBM directory holds, and the marker
-  `fcio.c` looks for in an FCI file is `IMG`. The library's character output
-  had the same problem in reverse -- its ASCII to screen code map was really a
-  PETSCII to screen code map, and every string came out with its case
-  inverted until it was rewritten.
-- **The heap was whatever RAM was left.** Calypsi's is 256 bytes unless you
-  ask, and `fc_loadFCI` wants 765 of them in one piece for a palette.
-
-The rest followed from the program now running in C65 mode rather than C64
-mode behind the `c65bin` wrapper, which is gone: the tune moved from $C000,
-which is the C65's interface ROM, to $9000, and everything the game reads off
-the disk it now reads *before* it flattens the memory map, because the KERNAL
-it is left with afterwards is the C64 one and this program never initialised
-it. `mega65-hexgame.scm` is the memory map and says where the holes are.
-
-Two pieces of hand-assembled machine code left the C source in the move, since
-`as6502` speaks 45GS02 where `ca65` did not: the routine that banks out the
-ROM was an array of bytes with an apology next to it, and is now
-`mega65-libc-modified/src/fcio_asm.s`.
+This game uses tools/diskutil.rb, which was written by Fredrik Ramsberg.

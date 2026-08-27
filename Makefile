@@ -201,7 +201,8 @@ res/%.fci: img-src/%.png tools/png2fci.py
 release: $(PRG)
 	mkdir -p $(dir $(RELEASE))
 	cp $(PRG) $(RELEASE)/hexgame.prg
-	c1541 -format "hexgame,hg" d81 $(RELEASE)/hexgame.d81 -write $(RELEASE)/hexgame.prg hexgame
+	rm $(RELEASE)/hexgame.d81
+	ruby tools/diskutil.rb $(RELEASE)/hexgame.d81 -copyf1 $(RELEASE)/hexgame.prg 
 	@echo "release: $(RELEASE)/hexgame.prg"
 
 clean:
