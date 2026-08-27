@@ -49,5 +49,15 @@ beats it 100% of the time may still be beaten by anyone who has read the rules.
 
 `src/hexgame_ai.h` declares everything the AI needs from the program around it:
 `draw_board`, the three progress bar calls, and `ai_poll_input`. The game
-implements them; `hexsim.c` implements them as nothing. That short list is what
-keeps the AI portable to a host with no screen, and it is worth keeping short.
+implements them; `hexsim.c` implements all but one of them as nothing. That
+short list is what keeps the AI portable to a host with no screen, and it is
+worth keeping short.
+
+**`draw_board` is the exception, and it is the one to be careful with.** The
+game's clears every `board.redraw` flag it acts on, and a stub that does not
+hid a false win for years: `guard_edge` read one column past the board, which
+is `board.redraw[0][y]` and not a cell at all, and only the real
+`draw_board`'s clearing of that flag made it look like an empty cell to play
+in. With the flag left set the way `init_game` leaves it, nothing here could
+ever see it. The stub clears the flags now. If a hook grows a side effect the
+AI can observe, this is the place to copy it.

@@ -56,11 +56,23 @@ byte check_win(byte x, byte y) {
         }
     }
 
+    // **Nobody wins by joining up the empty cells.** Handed a cell that has no
+    // stone on it -- or one off the board, whose byte is really the next
+    // member of the struct -- the search below would flood every gap on the
+    // board instead of a chain, and a board with a gap running from one edge
+    // to the opposite one is nearly every board there is. It would then
+    // announce a win in the middle of the game, which is precisely what
+    // guard_edge() used to make it do; see src/hexgame_ai.c and design.md.
+    // Two comparisons a win check is a cheap price for never being told a
+    // false winner again.
+    if(!is_inside_board(x, y)) return NOWINNER;
+    stone_tile = (board.tile[x][y] & (255 - HEX_CURSOR));
+    if(stone_tile == HEX_EMPTY) return NOWINNER;
+
     // add the current stone to the queue
     board.queue_head = 1;
     board.queue_x[0] = x;
     board.queue_y[0] = y;
-    stone_tile = (board.tile[x][y] & (255 - HEX_CURSOR));
     condition[0] = false; // any stone on the left/top edge?
     condition[1] = false; // any stone on the right/bottom edge?
 

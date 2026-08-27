@@ -26,7 +26,23 @@
 
 /* --------------------------------------------------------------- the hooks */
 
-void draw_board(byte x0, byte y0) { (void)x0; (void)y0; }
+/* Not a no-op, and that is not a detail. The game's draw_board() clears every
+ * redraw flag it acts on, and in August 2026 that turned out to be the second
+ * half of a false win: guard_edge() indexed one column past the board, which is
+ * board.redraw[0][y] rather than a cell, and read it as empty only because the
+ * real draw_board() had just cleared it. With the flag left set the way an
+ * empty stub leaves it, the whole bug was invisible here. A hook that models
+ * the game's side effects is worth more than one that models its signature. */
+void draw_board(byte x0, byte y0)
+{
+    byte x, y;
+
+    (void)x0;
+    (void)y0;
+    for (y = 0; y < board.size; y++)
+        for (x = 0; x < board.size; x++)
+            board.redraw[x][y] = false;
+}
 void show_progress_bar(void) {}
 void set_progress_bar(byte position) { (void)position; }
 void hide_progress_bar(void) {}

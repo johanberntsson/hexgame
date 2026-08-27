@@ -355,8 +355,23 @@ byte is_chain(byte x, byte y) {
             (y < board.size_minus_1 && (board.tile[x - 1][y + 1]  & (255 - HEX_CURSOR)) == stone));
 }
 
+// Block a white chain that is getting close to the right hand edge, by taking
+// the cell on the far side of its last stone.
+//
+// **`x0` has to be short of the last column, and not merely past the middle.**
+// White's last stone being *on* column `size-1` means white has arrived at the
+// edge it was heading for; there is no cell beyond it to take, and asking for
+// one used to read `board.tile[9][y0]`, which is `board.redraw[0][y0]` -- the
+// next member of the struct. That flag is false on a board that has just been
+// drawn, so it looked like an empty cell, and the computer "played" there:
+// `board.tile[9][y0] = HEX_BLACK` set the redraw flag of cell (0,y0), the
+// draw_board() that follows cleared it again, and `check_win(9, y0)` then read
+// its own stone back as HEX_EMPTY and flooded the *empty* cells instead --
+// which on any board with a gap from the top row to the bottom one is a
+// connection, so the computer announced a win in the middle of the game
+// without having placed a stone at all. See design.md.
 byte guard_edge(byte x0, byte y0, byte *xx, byte *yy) {
-    if(x0 > board.size/2) {
+    if(x0 > board.size/2 && x0 < board.size_minus_1) {
         if(is_chain(x0, y0) == false) return false;
         // block the chain if possible
         if(board.tile[x0 + 1][y0] == HEX_EMPTY) {

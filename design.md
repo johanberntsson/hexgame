@@ -415,6 +415,52 @@ against twenty board fills for each of up to 81 candidates.
 hundred times a second, which is why the AI's board and rules are a separate
 file from the game's screen handling now.
 
+## The false win (Aug 2026)
+
+Johan sent a screenshot of the computer announcing "I win! Robots > Mankind!!!"
+over a board with eleven stones on it and nothing black in either the top row
+or the bottom one, on the normal level. It was not `check_win` being wrong
+about a chain -- it was `check_win` being asked about a cell that had no stone
+on it at all, and one heuristic in front of it.
+
+`guard_edge` blocks a white chain that is coming up to the right hand edge by
+taking the cell beyond white's last stone. Its test was `x0 > board.size/2`,
+which is true of the last column too, and the cell beyond the last column does
+not exist: on a 9x9 board it read `board.tile[9][y0]`, and `tile` is
+`char[9][9]` with `redraw[9][9]` immediately after it, so that byte is
+`board.redraw[0][y0]`. A board that has just been drawn has every redraw flag
+false, so it read as an empty cell, and the heuristic happily returned column
+nine as the move. Then, in order:
+
+1. `board.tile[9][y0] = HEX_BLACK` set the redraw flag of cell (0,y0).
+2. `draw_board()` redrew cell (0,y0) and cleared the flag again.
+3. `check_win(9, y0)` read its own stone back as `HEX_EMPTY`, took
+   `stone_tile` to be empty, and flooded the *empty* cells.
+
+A gap running from the top row to the bottom one is not a rare thing on a board
+with seventy stones still to place, so the flood reached both of black's edges
+and the game was over. The computer had not placed a stone anywhere -- which is
+the other half of the screenshot, and the part that made it reproducible: white
+had just played (8,6) next to its stone at (7,5), and black's reply was nowhere
+to be seen.
+
+Both halves are fixed. `guard_edge` now wants `x0 < board.size_minus_1` as
+well, because white's stone being *on* the last column means white has already
+reached the edge and there is nothing beyond it to block. And `check_win`
+refuses a cell that is off the board or has no stone on it, which is two
+comparisons a move and turns any future version of this mistake into a computer
+that misses a move rather than one that wins the game.
+
+It is worth knowing how often this fired, because it had been in the game for
+years and had only just been noticed: playing whole 9x9 games against a random
+white player, with the win checked against an independent flood fill, the old
+code declared a false win in 58 games out of 300 on normal and 53 out of 300 on
+easy, and lost a move to column nine 357 times in those 300 games. The hard
+level has none of it -- `computer_turn_hard` calls no heuristics -- which is
+why only the other two levels were ever seen doing it. The harness was a
+throwaway, like the `check_win` fuzzer before it; `tools/hexsim/stub` is what
+makes writing one a five minute job.
+
 # Mouse, joystick and the arrow (2026)
 
 The cursor used to be a fourth tile in `hexgame.fci` -- an arrow drawn inside a
