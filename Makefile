@@ -197,9 +197,10 @@ RELEASE = release/hexgame.prg
 release: $(PRG)
 	mkdir -p $(dir $(RELEASE))
 	cp $(PRG) $(RELEASE)
+	c1541 -format "hexgame,hg" d81 release/hexgame.d81 -write release/hexgame.prg hexgame
 	@echo "release: $(RELEASE)"
 
 clean:
 	rm -rf $(BUILD)
 
-.PHONY: all run game release checkmusic splint clean
+.PHONY: all run game release checkmusic splint clean *.d81
