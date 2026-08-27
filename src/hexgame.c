@@ -501,7 +501,8 @@ void add_black_stone(byte x, byte y) {
 void show_title_screen() {
     fc_clrscr();
 
-    fc_bgcolor(FC_COLOR_BLACK);
+    fc_bgcolor(FC_COLOR_GREY1);
+    //fc_bgcolor(FC_COLOR_BLACK);
     fc_bordercolor(FC_COLOR_BLACK);
     fc_textcolor(FC_COLOR_GREEN);
     fc_displayTile(tiles, 19, 0, 0, 8, 40, 17, 0);
