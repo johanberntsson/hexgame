@@ -12,6 +12,16 @@
 ; the write protection from the ROM area, which is what makes $20000 writable
 ; at all.
 ;
+; **That last step is a toggle, not a "switch it off", and it outlives the
+; program.** Hypervisor function $70 flips the flag; nothing in a KERNAL reset
+; puts it back. A run that leaves the flag lifted therefore hands the *next*
+; run a machine where fc_bank_out_rom turns write protection back **on**, and
+; then every write into $20000-$3FFFF is quietly dropped -- which, in this
+; game, means the tile data for a band of the screen never arrives and the
+; cells there show leftover ROM bytes as pixels. So it is a separate,
+; published routine: quit_to_basic() in src/hexgame.c calls it a second time
+; on the way out, and the two calls have to stay paired.
+;
 ; **It leaves the machine in the C64 configuration**, which is why nothing may
 ; read a file after it: see the ordering note in main() in src/hexgame.c. The
 ; KERNAL that stays mapped is the C64 one at $2E000, so $2E000-$2FFFF is the
@@ -25,6 +35,7 @@
 
             .section code,text
             .public fc_bank_out_rom
+            .public fc_toggle_rom_write_protect
 
 fc_bank_out_rom:
             lda     #0
@@ -39,7 +50,12 @@ fc_bank_out_rom:
             lda     #0x53
             sta     0xd02f
             eom
-            lda     #0x70           ; Hypervisor trap: un-write-protect the ROM
+            ; fall through: lift the write protection from the ROM area
+
+; Flip the ROM area's write protection. Call it once to make $20000-$3FFFF
+; writable and once more to put it back; see the note above about pairing.
+fc_toggle_rom_write_protect:
+            lda     #0x70           ; Hypervisor trap: toggle ROM write protect
             sta     0xd640
             nop                     ; the trap needs this
             rts

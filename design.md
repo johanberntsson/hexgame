@@ -328,6 +328,35 @@ those registers itself**, so the clean BASIC screen it gives is not evidence
 that the hardware will do the same; the explicit restore is the thing to trust,
 and the thing to suspect if a real MEGA65 disagrees.
 
+## Putting the write protection back (Aug 2026)
+
+Quitting worked. Starting the game a *second* time did not: the logo came up as
+coloured noise and a band across the board with it, both in xemu and on the
+machine, and only ever on a run that followed a quit. A fresh boot was always
+perfect, which is the shape of a bug that lives in state left behind rather
+than in the code that draws.
+
+The sentence above -- "the write protection was already lifted, so putting the
+ROM back needs nothing special" -- is where it was hiding. Hypervisor function
+$70 does not *clear* the ROM area's write protection, it **toggles** it, and
+nothing in a KERNAL reset puts it back. So run one lifted it, quit, and left it
+lifted; run two called `fc_bank_out_rom` and turned it back **on**. Every write
+into $20000-$3FFFF was then dropped on the floor -- no error, nothing to
+notice -- and the tile data for every cell whose 64 bytes live in that 128 KB
+simply never arrived. What the VIC-IV drew there was the ROM image underneath,
+which is what coloured noise in the shape of the logo actually was.
+
+It reproduces without a second run at all: one extra call to the toggle before
+`enter_tile_mode()` puts a build in exactly the state run two starts in, and a
+headless screenshot comes back with the same corrupt band in the same place.
+That is the whole confirmation, and it took a minute; recognising that "worked
+once, broken the second time" meant a toggle was the part that took a while.
+
+`quit_to_basic()` toggles it back, after the ROM copy rather than before it --
+the protection stops a DMA job as surely as it stops a store. The trap is a
+published routine of its own now (`fc_toggle_rom_write_protect`, the tail of
+`fc_bank_out_rom`) so that the pairing is visible from both ends.
+
 # Memory problems/fast IRQ loader
 
 There is a fast loader which could be used to read the resouces in the mega65-tools repository: [fastload_demo.a](https://github.com/MEGA65/mega65-tools/blob/master/src/utilities/fastload_demo.asm)

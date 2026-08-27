@@ -139,6 +139,14 @@ static void save_rom(void) {
 // protection from this area at startup and nothing has put it back, which is
 // what makes the copy below possible at all.
 //
+// **And putting it back is this function's job, because that request is a
+// toggle and it outlives the program.** Nothing in a KERNAL reset restores it,
+// so a run that quits with the protection still lifted leaves the next run's
+// fc_bank_out_rom() turning it back *on*: the tile writes into $20000-$3FFFF
+// are then dropped, and the cells whose tile data lives there -- most of the
+// logo, and a band across the board -- draw whatever ROM bytes are underneath.
+// The machine boots protected, so every run has to leave it protected too.
+//
 // The VIC-IV is put back by hand first. A reset writes the VIC-II registers,
 // and with the hot registers enabled those recompute most of the VIC-IV side
 // -- but only most. `~/commodore/ozmoo-z6` found on a **real MEGA65** that
@@ -150,6 +158,9 @@ static void save_rom(void) {
 // offset this game moves and the two sprites it owns.
 #define KERNAL_RESET 0xe4b8     // the C65 KERNAL's reset entry
 
+// mega65-libc-modified/src/fcio_asm.s, the second half of fc_bank_out_rom
+void fc_toggle_rom_write_protect(void);
+
 void quit_to_basic(void) {
     byte i;
 
@@ -160,10 +171,13 @@ void quit_to_basic(void) {
     __disable_interrupts();
     for(i = 0; i < 25; i++) POKE(0xd400u + i, 0);
 
-    // The ROM, back where the reset below expects to find it.
+    // The ROM, back where the reset below expects to find it. The write
+    // protection goes back on after the copy, not before it -- it stops DMA
+    // as surely as it stops a store.
     for(i = 0; i < ROM_CHUNKS; i++)
         lcopy(ROM_SAVE + (long)ROM_CHUNK * i,
               ROM_IMAGE + (long)ROM_CHUNK * i, ROM_CHUNK);
+    fc_toggle_rom_write_protect();
 
     mega65_io_enable();
     POKE(0xd05du, PEEK(0xd05du) | 0x80);  // hot registers on, so the reset's
