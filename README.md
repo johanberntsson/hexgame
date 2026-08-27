@@ -1,7 +1,7 @@
 # hexgame
 The Hex game for the MEGA65 computer, with an AI using Monte Carlo simulation and some heuristics.
 
-![Tiles](screenshots/title.png)
+![Tiles](screenshots/title-r2.png)
 
 # Getting started
 
