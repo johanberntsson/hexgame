@@ -36,6 +36,7 @@
 #define KEY_RIGHT 29
 #define KEY_ENTER 13
 #define KEY_SPACE 32
+#define KEY_RUNSTOP 3
 
 // Call once, after the screen mode is set up.
 void input_init(void);

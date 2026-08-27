@@ -319,6 +319,7 @@ byte player_turn() {
         ky = py;
         switch(key) {
             case KEY_ESC:
+            case KEY_RUNSTOP:
                 input_show_pointer(false);
                 return ABORT;
             case KEY_ENTER:
@@ -427,7 +428,7 @@ byte  delay(byte sec) {
                 // means "give up and go back to the title", which is why it
                 // was the one key this loop threw away; here there is nothing
                 // left to back out to, so it quits.
-                if(c == KEY_ESC) quit_to_basic();
+                if(c == KEY_ESC || c == KEY_RUNSTOP) quit_to_basic();
                 if(c) return c;
             }
         }
