@@ -250,6 +250,10 @@ void enter_tile_mode() {
 void draw_board(byte x0, byte y0) {
     byte x, y, xx, yy;
     for(y = 0; y < board.size; y++) {
+        // A whole board is a fifth of a second even now, and the joystick is
+        // the one input that is lost rather than queued while it goes by.
+        // See input_scan() in src/input.c.
+        input_scan();
         for(x = 0; x < board.size; x++) {
             if(board.redraw[x][y]) {
                 board.redraw[x][y] = false;
@@ -325,7 +329,7 @@ void update_options(byte *key) {
         }
         *key = 0;
     }
-    if(*key == KEY_F2) {
+    if(*key == KEY_F3) {
         ++option_difficulty;
         if(option_difficulty > OPTION_DIFFICULTY_HARD)
             option_difficulty = OPTION_DIFFICULTY_EASY;
@@ -445,6 +449,12 @@ void ai_poll_input(void) {
         POKE(0xD610U, 0);
         update_options(&key);
     }
+    // ...and the joystick, which is not read here so much as remembered:
+    // input_scan() latches one direction and takes no fire button, so a stick
+    // held through normal's Monte Carlo search -- 1.2 seconds, and about one
+    // of its turns in three -- moves the cursor once when the turn comes back
+    // rather than being thrown away. See src/input.c.
+    input_scan();
 }
 
 void show_options() {
@@ -510,7 +520,7 @@ void show_title_screen() {
     fc_center(0, 19, 80, "Release 2, 2026 by Johan Berntsson");
     fc_textcolor(FC_COLOR_GREEN);
     fc_putsxy(20, 49, "Music (F1): ");
-    fc_putsxy(40, 49, "Difficulty (F2): ");
+    fc_putsxy(40, 49, "Difficulty (F3): ");
 
     for(;;) {
         init_game(4);
@@ -554,7 +564,7 @@ void show_title_screen() {
 
         if(show_title_text("and place your stone with the button, fire or enter", TEXT_DELAY)) return;
 
-        if(show_title_text("Select difficulty level with F2", TEXT_DELAY)) return;
+        if(show_title_text("Select difficulty level with F3", TEXT_DELAY)) return;
 
         // if(show_title_text("But even HARD isn't that difficult. Sorry", TEXT_DELAY)) return;
 

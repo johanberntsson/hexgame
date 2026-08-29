@@ -22,7 +22,7 @@ void show_progress_bar(void);
 void set_progress_bar(byte position);
 void hide_progress_bar(void);
 // Called from inside the search, often enough that a key press during a long
-// think is not lost. The game reads $D610 and acts on F1/F2 here.
+// think is not lost. The game reads $D610 and acts on F1/F3 here.
 void ai_poll_input(void);
 
 // Places the computer's stone and returns what check_win made of it.

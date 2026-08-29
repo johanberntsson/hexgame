@@ -1088,6 +1088,29 @@ void fc_setUniqueTileMode()
     }
 }
 
+// Where a cell's 64 bytes of tile data really go. The store runs from
+// BITMAP_MIRROR upwards, one 64 byte block per screen cell, but two spans in
+// the middle of it are not ours: the DOS work area at $1F800 and the C64
+// KERNAL at $2C000, which is the KERNAL this program is running on. Both are
+// stepped over, which makes the raw-to-real mapping a monotone staircase --
+// contiguous everywhere except at those two steps.
+//
+// **The second test looks at the address the first one already moved**, which
+// is what makes the two skips add up rather than the later one replacing the
+// earlier. This was written out twice in the loops below; it is one function
+// now because the row-at-a-time path has to ask the same question about the
+// first and the last cell of a row.
+static long fc_tileStoreAddr(long raw)
+{
+    if (raw + 64 >= 0x1f800L) raw += 0x4800L;
+    if (raw + 64 >= 0x2c000L) raw += 0x4000L;
+    return raw;
+}
+
+// One row of a tile's screen words, built here and pushed out in a single DMA
+// rather than a pair per cell. 80 cells is the widest screen fc_init offers.
+static byte tileRowWords[160];
+
 void fc_displayTile(fciInfo *info, byte x0, byte y0, byte t_x, byte t_y, byte t_w, byte t_h, byte mergeTiles)
 {
     static byte x, y;
@@ -1096,6 +1119,8 @@ void fc_displayTile(fciInfo *info, byte x0, byte y0, byte t_x, byte t_y, byte t_
     long toTileAddr;
     long fromTileAddr;
     long rawToTileAddr;
+    long rowEndAddr;
+    word rowBytes;
 
     for (y = t_y; y < t_y + t_h; ++y) {
         screenAddr = gFcioConfig->screenBase + 2* (x0 + (y0 + y - t_y) * (gScreenColumns + gScreenRRW));
@@ -1113,6 +1138,39 @@ void fc_displayTile(fciInfo *info, byte x0, byte y0, byte t_x, byte t_y, byte t_
             // clearing 40x17 characters of tile store below itself on the way
             // past, which nothing happened to be using.
             rawToTileAddr = BITMAP_MIRROR + 64L * (x0 + ((y0 + y - t_y) * gScreenColumns));
+
+            // **A whole row of a tile is one DMA job, not three per cell.**
+            // Source and destination are both 64 byte blocks laid end to end,
+            // so t_w cells are one contiguous copy -- unless one of the two
+            // skips above falls inside the row, which the comparison below is
+            // asking about: the last cell has to land exactly t_w-1 blocks
+            // past the first. The screen words go the same way, built in
+            // tileRowWords and written with one more job.
+            //
+            // It is worth the trouble because this is the game's whole cost of
+            // drawing: the per-cell path is three DMA jobs and a rebuilt DMA
+            // list each time, and a full 81 hexagon board came to just over a
+            // second of it, a second in which nothing polls the joystick. See
+            // the joystick note in src/input.c.
+            toTileAddr = fc_tileStoreAddr(rawToTileAddr);
+            rowBytes = 64u * t_w;
+            rowEndAddr = fc_tileStoreAddr(rawToTileAddr + (long)(rowBytes - 64u));
+            if (t_w != 0 && t_w <= sizeof(tileRowWords) / 2 &&
+                rowEndAddr - toTileAddr == (long)(rowBytes - 64u)) {
+                if (mergeTiles) {
+                    lcopy_transparent(fromTileAddr, toTileAddr, rowBytes, 0);
+                } else {
+                    lcopy(fromTileAddr, toTileAddr, rowBytes);
+                }
+                charIndex = (word)(toTileAddr / 64L);
+                for (x = 0; x < t_w; ++x) {
+                    tileRowWords[2*x] = (byte)charIndex;
+                    tileRowWords[2*x + 1] = (byte)(charIndex >> 8);
+                    ++charIndex;
+                }
+                lcopy((long)(word)tileRowWords, screenAddr, 2u * t_w);
+                continue;
+            }
         } else {
             // use pointer directly to bitmap asset
             charIndex = info->baseAdr / 64L + t_x + (y * info->columns);
@@ -1120,11 +1178,7 @@ void fc_displayTile(fciInfo *info, byte x0, byte y0, byte t_x, byte t_y, byte t_
         for (x = t_x; x < t_x + t_w; ++x)
         {
             if(uniqueTileMode) {
-                toTileAddr = rawToTileAddr;
-                // skip over DOS if needed
-                if(toTileAddr + 64 >= 0x1f800) toTileAddr += 0x4800;
-                // skip over C64 kernal if needed
-                if(toTileAddr + 64 >= 0x2c000) toTileAddr += 0x4000;
+                toTileAddr = fc_tileStoreAddr(rawToTileAddr);
                 if(mergeTiles) {
                     lcopy_transparent(fromTileAddr, toTileAddr, 64, 0);
                 } else {

@@ -24,7 +24,7 @@ byte mcs_get_wins(byte skip_tile, byte num_permutations) {
         if(i != skip_tile) ++n;
     }
     for(n = 0; n < num_permutations; n++) {
-        ai_poll_input(); // so F1/F2 still work during a long think
+        ai_poll_input(); // so F1/F3 still work during a long think
 
         // do random mutations
         for(i=num_empty - 1; i>1; i--) {

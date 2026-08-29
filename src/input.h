@@ -29,6 +29,7 @@
 // for the printable keys, PETSCII's control codes for the rest.
 #define KEY_F1 241
 #define KEY_F2 242
+#define KEY_F3 243
 #define KEY_UP 145
 #define KEY_ESC 27
 #define KEY_DOWN 17
@@ -56,6 +57,14 @@ void input_show_pointer(byte on);
 // which come out as KEY_ENTER). 0 when there is nothing. Non-blocking, and
 // meant to be called in a tight loop.
 byte input_poll(void);
+
+// Sample the joystick and remember one step, for the next input_poll() to
+// hand over. **Call this from any loop that is going to be busy for longer
+// than a frame or two**, or a direction held over it is lost: a key waits in
+// $D610 and the mouse's counters go on counting, but a joystick is level
+// sampled and nothing in the machine holds it. src/hexgame.c calls it from
+// draw_board() and from ai_poll_input(); see the note in src/input.c.
+void input_scan(void);
 
 // True if the mouse has moved the pointer onto a different hexagon since the
 // last time this was asked, in which case *x and *y are that hexagon. The

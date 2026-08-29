@@ -184,6 +184,27 @@ static byte click_jiffy;        // the jiffy that window last counted down on
 static byte joy_jiffy;          // the jiffy the last joystick step was taken on
 static byte joy_port2;          // port 2's lines, filled in by read_ports()
 
+// **The joystick is the only input the machine does not hold on to for us**,
+// and that is why it alone appears to stop working while the game is busy.
+// A key waits in $D610 until something reads it, and the mouse's counters go
+// on counting in hardware, so both survive a stretch with no input_poll() in
+// it -- the arrow simply jumps to where the mouse now is. A joystick is
+// sampled and nothing more: a direction held while the board is being drawn
+// or while the computer is thinking is never seen at all.
+//
+// Those stretches were seconds long. A full 81 hexagon board took just over a
+// second to draw before fc_displayTile learnt to do a row per DMA job, and
+// normal's Monte Carlo search takes about 1.2 seconds whenever it is reached,
+// which is roughly one of its turns in three. **Both were reported as "the
+// joystick takes one or two seconds to start reacting"**, from the title
+// screen and from the middle of a game.
+//
+// So the busy loops call input_scan(), which samples the stick and remembers
+// one step for the next input_poll() to hand over. One, not a queue: the point
+// is that a push is not lost, not that the cursor should run across the board
+// while the player cannot see it.
+static byte joy_latch;          // a direction input_scan() picked up, or 0
+
 // --------------------------------------------------------------- hardware
 
 // Read the joystick and both fire buttons, and return control port 1's lines.
@@ -223,6 +244,21 @@ static byte read_ports(void) {
     POKE(JOY_COLUMNS, save);
     __enable_interrupts();
     return p1;
+}
+
+// One step from the joystick, or 0 if it is centred or the rate limit has not
+// run out. **The limit lives here and nowhere else**, so a push cannot be
+// taken twice -- once by input_scan() into the latch and again by the
+// input_poll() that follows it.
+static byte joy_step(byte joy, byte now) {
+    if((joy & JOY_DIRS) == JOY_DIRS) return 0;
+    if((byte)(now - joy_jiffy) < JOY_JIFFIES) return 0;
+    joy_jiffy = now;
+    if(!(joy & JOY_LEFT)) return KEY_LEFT;
+    if(!(joy & JOY_RIGHT)) return KEY_RIGHT;
+    if(!(joy & JOY_UP)) return KEY_UP;
+    if(!(joy & JOY_DOWN)) return KEY_DOWN;
+    return 0;
 }
 
 // The pot is a six bit counter that wraps, so what a reading means is the
@@ -364,6 +400,7 @@ void input_init(void) {
     prev_poty = read_pot(POTY);
     button_held = false;
     click_timer = 0;
+    joy_latch = 0;
     pointer_init();
     input_set_cell(0, 0);
     POKE(KEYBOARD, 0);
@@ -439,15 +476,24 @@ byte input_poll(void) {
     }
 
     // --- a joystick direction is a cursor key, one hexagon per step ---
-    if((joy & JOY_DIRS) != JOY_DIRS) {
-        if((byte)(now - joy_jiffy) < JOY_JIFFIES) return 0;
-        joy_jiffy = now;
-        if(!(joy & JOY_LEFT)) return KEY_LEFT;
-        if(!(joy & JOY_RIGHT)) return KEY_RIGHT;
-        if(!(joy & JOY_UP)) return KEY_UP;
-        if(!(joy & JOY_DOWN)) return KEY_DOWN;
-    }
+    key = joy_step(joy, now);
 
-    return 0;
+    // ...or one input_scan() took while the game was busy elsewhere. The
+    // latch is dropped either way: if joy_step() has just given a step, the
+    // two are the same push, and a direction older than that is not worth
+    // acting on any more.
+    if(key == 0) key = joy_latch;
+    joy_latch = 0;
+    return key;
+}
+
+// Sample the joystick from a loop that is doing something else. Only the
+// joystick: reading the pots here would move the arrow while the player
+// cannot see it, and the counters need no help -- and a fire button is
+// deliberately not latched either, because a click while the computer is
+// thinking is not a move. See ai_poll_input() in src/hexgame.c.
+void input_scan(void) {
+    byte step = joy_step(read_ports(), PEEK(JIFFY));
+    if(step) joy_latch = step;
 }
 

@@ -19,7 +19,7 @@
 ;;; linker places in whatever it has left down here.
 ;;;
 ;;; **`zdata` is in the free RAM below the program, not in it.** The whole of
-;;; the program's BSS -- about 1.5 KB -- lives at $1600-$1EFF, which the stock
+;;; the program's BSS -- about 1.9 KB -- lives at $1600-$1EFF, which the stock
 ;;; rules already declare as free space (it is where `zpsave` would go, and
 ;;; this program has none). It had to move: the 28 KB at $2001 was 98.9% full
 ;;; and there was no room left to add anything. BSS is not in the PRG, so
